@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -6,8 +6,17 @@ import { registerScrollback } from "../terminals.ts";
 
 const MAX_RETRIES = 5;
 
+type ConnState = "connecting" | "open" | "reconnecting" | "failed";
+
+const BADGE: Record<Exclude<ConnState, "open">, { text: string; cls: string }> = {
+  connecting: { text: "connecting…", cls: "bg-amber-500/80" },
+  reconnecting: { text: "reconnecting…", cls: "bg-amber-500/80" },
+  failed: { text: "disconnected — reload", cls: "bg-red-600/80" },
+};
+
 export function Terminal({ sessionId }: { sessionId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const [conn, setConn] = useState<ConnState>("connecting");
 
   useEffect(() => {
     const host = hostRef.current;
@@ -44,6 +53,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
 
       ws.onopen = () => {
         retries = 0;
+        setConn("open");
         sendResize();
       };
       ws.onmessage = (ev) => {
@@ -53,9 +63,11 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       ws.onclose = () => {
         if (closed) return;
         if (retries >= MAX_RETRIES) {
+          setConn("failed");
           term.write("\r\n\x1b[31m[disconnected — reload to reconnect]\x1b[0m\r\n");
           return;
         }
+        setConn("reconnecting");
         const delay = Math.min(5000, 250 * 2 ** retries);
         retries += 1;
         reconnectTimer = setTimeout(connect, delay);
@@ -101,5 +113,16 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId]);
 
-  return <div ref={hostRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={hostRef} className="h-full w-full" />
+      {conn !== "open" && (
+        <div
+          className={`absolute top-2 right-2 px-2 py-0.5 rounded text-xs text-white ${BADGE[conn].cls}`}
+        >
+          {BADGE[conn].text}
+        </div>
+      )}
+    </div>
+  );
 }

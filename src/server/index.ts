@@ -2,7 +2,7 @@ import type { ServerWebSocket, WebSocketHandler } from "bun";
 import { join } from "node:path";
 import * as ai from "./ai.ts";
 import { seedIfEmpty } from "./db.ts";
-import { killAll, respawnAll } from "./gotty.ts";
+import { killAll, respawnAll, startHealthMonitor } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
 import { handleApi } from "./routes.ts";
 import * as appws from "./ws.ts";
@@ -16,6 +16,7 @@ type SocketData = AppData | proxy.ProxyData;
 
 seedIfEmpty();
 await respawnAll(); // auto-respawn GoTTY for persisted sessions on restart
+startHealthMonitor(); // ping GoTTY processes every 30s, respawn if unresponsive
 
 const asProxy = (ws: ServerWebSocket<SocketData>) => ws as ServerWebSocket<proxy.ProxyData>;
 const asApp = (ws: ServerWebSocket<SocketData>) => ws as ServerWebSocket<unknown>;

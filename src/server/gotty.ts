@@ -88,3 +88,35 @@ export async function respawnAll(): Promise<void> {
 export function killAll(): void {
   for (const id of [...procs.keys()]) kill(id);
 }
+
+async function isAlive(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1500) });
+    return res.ok || res.status === 401;
+  } catch {
+    return false;
+  }
+}
+
+// Periodically ping each GoTTY process; respawn any that has exited or stopped
+// responding (P1 health check). Returns a stop function.
+export function startHealthMonitor(intervalMs = 30_000): () => void {
+  let running = false;
+  const timer = setInterval(async () => {
+    if (running) return;
+    running = true;
+    try {
+      for (const [sessionId, { proc, port }] of [...procs]) {
+        const dead = proc.exitCode !== null || !(await isAlive(port));
+        if (dead) {
+          console.warn(`[gotty] session ${sessionId} unhealthy on :${port}, respawning`);
+          kill(sessionId);
+          await ensure(sessionId);
+        }
+      }
+    } finally {
+      running = false;
+    }
+  }, intervalMs);
+  return () => clearInterval(timer);
+}
