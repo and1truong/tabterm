@@ -119,6 +119,7 @@ const q = {
   allOrders: db.query<OrderRow, []>("SELECT * FROM sidebar_order"),
 
   insertPrimaryTab: db.query("INSERT INTO primary_tabs (id, label, position) VALUES (?, ?, ?)"),
+  maxTabPos: db.query<{ p: number | null }, []>("SELECT MAX(position) AS p FROM primary_tabs"),
   insertGroup: db.query(
     "INSERT INTO groups (id, primary_tab_id, label, color, is_open, position) VALUES (?, ?, ?, ?, 1, ?)",
   ),
@@ -215,6 +216,13 @@ export function seedIfEmpty(): void {
 
 // ---- mutations ---------------------------------------------------------------
 // Each returns the data needed to broadcast minimal patches to clients.
+
+export function createTab(label: string, id: string = randomUUID()): PrimaryTab {
+  const position = (q.maxTabPos.get()?.p ?? -1) + 1;
+  q.insertPrimaryTab.run(id, label, position);
+  q.upsertOrder.run(id, "[]");
+  return toPrimaryTab(q.getPrimaryTab.get(id)!);
+}
 
 export function createGroup(
   primaryTabId: string,

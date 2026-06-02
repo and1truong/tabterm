@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
+import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { registerScrollback } from "../terminals.ts";
+import { useStore } from "../store.ts";
+import { TERM_THEMES, type TermPreset } from "../termThemes.ts";
 
 const MAX_RETRIES = 5;
 
@@ -14,9 +16,31 @@ const BADGE: Record<Exclude<ConnState, "open">, { text: string; cls: string }> =
   failed: { text: "disconnected — reload", cls: "bg-red-600/80" },
 };
 
+function xtermTheme(preset: TermPreset): ITheme {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name: string, fb: string) => cs.getPropertyValue(name).trim() || fb;
+  const bg = v("--term-bg", "#0a0d12");
+  const fg = preset.foreground ?? v("--term-fg", "#d7dbe2");
+  return {
+    background: bg,
+    foreground: fg,
+    cursor: preset.cursor ?? fg,
+    cursorAccent: bg,
+    selectionBackground: "rgba(59,130,246,0.35)",
+  };
+}
+
 export function Terminal({ sessionId }: { sessionId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<XTerm | null>(null);
   const [conn, setConn] = useState<ConnState>("connecting");
+  const theme = useStore((s) => s.theme);
+  const termTheme = useStore((s) => s.termTheme);
+
+  // Re-apply the xterm color theme when the app theme or preset changes.
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = xtermTheme(TERM_THEMES[termTheme] ?? {});
+  }, [theme, termTheme]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -26,8 +50,9 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
-      theme: { background: "#0f1115", foreground: "#e5e7eb" },
+      theme: xtermTheme(TERM_THEMES[useStore.getState().termTheme] ?? {}),
     });
+    termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
@@ -37,27 +62,23 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     let retries = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
-
     const enc = new TextEncoder();
 
     const sendResize = () => {
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ cols: term.cols, rows: term.rows }));
-      }
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cols: term.cols, rows: term.rows }));
     };
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/gotty/ws/${sessionId}`);
       ws.binaryType = "arraybuffer";
-
       ws.onopen = () => {
         retries = 0;
         setConn("open");
         sendResize();
       };
       ws.onmessage = (ev) => {
-        if (typeof ev.data === "string") return; // control frames, ignored
+        if (typeof ev.data === "string") return;
         term.write(new Uint8Array(ev.data as ArrayBuffer));
       };
       ws.onclose = () => {
@@ -80,13 +101,10 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     });
     const onResize = term.onResize(sendResize);
 
-    // Expose a live scrollback snapshot for the AI assistant (Req 7).
     const unregister = registerScrollback(sessionId, () => {
       const buf = term.buffer.active;
       const lines: string[] = [];
-      for (let i = 0; i < buf.length; i++) {
-        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
-      }
+      for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
       return lines.filter((l) => l.trim() !== "");
     });
 
@@ -110,16 +128,15 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       onResize.dispose();
       ws?.close();
       term.dispose();
+      termRef.current = null;
     };
   }, [sessionId]);
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={hostRef} className="h-full w-full" />
+    <div className="relative h-full w-full" style={{ background: "var(--term-bg)" }}>
+      <div ref={hostRef} className="h-full w-full p-2" />
       {conn !== "open" && (
-        <div
-          className={`absolute top-2 right-2 px-2 py-0.5 rounded text-xs text-white ${BADGE[conn].cls}`}
-        >
+        <div className={`absolute top-2 right-3 px-2 py-0.5 rounded text-xs text-white ${BADGE[conn].cls}`}>
           {BADGE[conn].text}
         </div>
       )}

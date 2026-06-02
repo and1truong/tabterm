@@ -1,9 +1,58 @@
 @import "tailwindcss";
 
-@theme {
-  --color-bg: #0f1115;
-  --color-panel: #161922;
-  --color-border: #262b36;
+/* Manual dark mode driven by a `.dark` class on <html> (toggled in JS). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---- Light theme (default) ---- */
+:root {
+  --bg: #f3f5f8;
+  --panel: #ffffff;
+  --header: #ffffff;
+  --border: #e6e9ee;
+  --border-2: #d7dce3;
+  --text: #1f2733;
+  --muted: #6b7585;
+  --faint: #9aa3b2;
+  --accent: #2563eb;
+  --accent-soft: #3b82f6;
+  --orange: #f5610b;
+  --green: #16a34a;
+  --hover: #f1f3f7;
+  --active: #eef1f6;
+  --term-bg: #fbfbfd;
+  --term-fg: #1f2733;
+  --brand-bg: #eef2ff;
+  --brand-fg: #2563eb;
+  --switch-off: #cbd2dc;
+  --statusbar: #2563eb;
+  --statusbar-fg: #ffffff;
+  --statusbar-chip: #1d4ed8;
+}
+
+/* ---- Dark theme ---- */
+.dark {
+  --bg: #090b0f;
+  --panel: #0e1117;
+  --header: #0b0e13;
+  --border: #1b212c;
+  --border-2: #29313f;
+  --text: #e6e9ef;
+  --muted: #8a93a3;
+  --faint: #586173;
+  --accent: #7c93ff;
+  --accent-soft: #6b8afd;
+  --orange: #f97316;
+  --green: #22c55e;
+  --hover: #141a23;
+  --active: #161d28;
+  --term-bg: #0a0d12;
+  --term-fg: #d7dbe2;
+  --brand-bg: #131a2b;
+  --brand-fg: #8ca2ff;
+  --switch-off: #2a3242;
+  --statusbar: #0b0e13;
+  --statusbar-fg: #8a93a3;
+  --statusbar-chip: #161d28;
 }
 
 html,
@@ -14,7 +63,17 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-bg);
-  color: #e5e7eb;
+  background: var(--bg);
+  color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+
+/* thin scrollbars that respect the theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
 }

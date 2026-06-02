@@ -5,6 +5,7 @@ import {
   createGroup,
   createNote,
   createSession,
+  createTab,
   deleteNote,
   deleteSession,
   loadState,
@@ -81,6 +82,10 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       if (result.order) {
         broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
       }
+      break;
+    }
+    case "tab:create": {
+      broadcast(setPatch("primaryTab", createTab(msg.label, msg.id)));
       break;
     }
     case "rename": {

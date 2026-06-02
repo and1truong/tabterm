@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { FolderPlus, FolderTree, Plus, X } from "lucide-react";
 import type { GroupColor } from "../../shared/types.ts";
 import { GROUP_COLORS } from "../../shared/types.ts";
 import { buildTree, intoGroup, toTop, type Tree } from "../layout.ts";
@@ -31,16 +32,23 @@ export function Sidebar() {
   const [over, setOver] = useState<string | null>(null);
 
   if (!primaryTabId) {
-    return <aside className="w-60 border-r border-[var(--color-border)] bg-[var(--color-panel)]" />;
+    return <aside className="w-64 border-r border-[var(--border)] bg-[var(--panel)]" />;
   }
 
   const tabId = primaryTabId;
   const tree = buildTree(order[tabId] ?? [], groups, sessions);
 
+  // running number across the flattened visual order
+  const numberOf: Record<string, number> = {};
+  let n = 0;
+  for (const ref of tree.top) {
+    if (groups[ref]) for (const sid of tree.groups[ref] ?? []) numberOf[sid] = ++n;
+    else numberOf[ref] = ++n;
+  }
+
   const sendLayout = (t: Tree) =>
     sendMessage({ type: "layout", primaryTabId: tabId, order: t.top, groups: t.groups });
 
-  // --- mutations ---
   const addGroup = () => {
     const label = prompt("Group name?");
     if (!label) return;
@@ -48,11 +56,11 @@ export function Sidebar() {
     sendMessage({ type: "group:create", primaryTabId: tabId, label, color });
   };
   const addSession = (groupId?: string) => {
-    const label = prompt("Session name?");
+    const label = prompt("Subtab name?");
     if (!label) return;
     const id = crypto.randomUUID();
     sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label });
-    setActiveSession(id); // focus the new session immediately on this device
+    setActiveSession(id);
   };
   const rename = (entity: "group" | "session", id: string, label: string) =>
     sendMessage({ type: "rename", entity, id, label });
@@ -68,11 +76,8 @@ export function Sidebar() {
   };
   const allowDrop = (key: string) => (e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
     if (over !== key) setOver(key);
   };
-  // Drop at top level, before `beforeId` (null = append). Works for groups and
-  // sessions (a session dropped here becomes ungrouped).
   const dropTop = (beforeId: string | null) => (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -80,8 +85,6 @@ export function Sidebar() {
     if (d) sendLayout(toTop(tree, d.id, beforeId));
     onDragEnd();
   };
-  // Drop into a group. A session moves in (before `beforeSid`, or appended);
-  // a group dropped here is reordered before the target group instead.
   const dropGroup = (gid: string, beforeSid: string | null) => (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -90,9 +93,8 @@ export function Sidebar() {
     else if (d?.kind === "group") sendLayout(toTop(tree, d.id, gid));
     onDragEnd();
   };
-
   const insertBar = (key: string) =>
-    over === key ? "border-t-2 border-blue-400" : "border-t-2 border-transparent";
+    over === key ? "border-t-2 border-[var(--accent)]" : "border-t-2 border-transparent";
 
   const SessionRow = ({
     id,
@@ -107,6 +109,7 @@ export function Sidebar() {
   }) => {
     const s = sessions[id];
     if (!s) return null;
+    const active = id === activeSessionId;
     return (
       <div
         draggable
@@ -114,41 +117,45 @@ export function Sidebar() {
         onDragEnd={onDragEnd}
         onDragOver={allowDrop(overKey)}
         onDrop={onDrop}
-        className={`group flex items-center gap-2 pl-2 pr-1 py-1 rounded cursor-pointer text-sm ${insertBar(
+        onClick={() => setActiveSession(id)}
+        className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm ${insertBar(
           overKey,
         )} ${
-          id === activeSessionId
-            ? "bg-[var(--color-bg)] text-white"
-            : "text-gray-300 hover:bg-[var(--color-bg)]/50"
+          active
+            ? "bg-[var(--panel)] border border-[var(--border-2)] text-[var(--text)] font-medium shadow-sm"
+            : "border border-transparent text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
         }`}
-        onClick={() => setActiveSession(id)}
       >
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-          style={{ background: dot ?? "#4b5563" }}
-        />
-        <EditableLabel
-          value={s.label}
-          onCommit={(v) => rename("session", id, v)}
-          className="truncate flex-1"
-        />
+        <span className="mono text-xs text-[var(--faint)] w-4 shrink-0">{numberOf[id]}.</span>
+        {dot && (
+          <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dot }} />
+        )}
+        <EditableLabel value={s.label} onCommit={(v) => rename("session", id, v)} className="truncate flex-1" />
         <button
-          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 px-1"
+          className="opacity-0 group-hover:opacity-100 text-[var(--faint)] hover:text-red-400"
           onClick={(e) => {
             e.stopPropagation();
             sendMessage({ type: "session:delete", sessionId: id });
           }}
-          title="Delete session"
+          title="Delete subtab"
         >
-          ×
+          <X size={13} />
         </button>
       </div>
     );
   };
 
   return (
-    <aside className="w-60 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col">
-      <div className="flex-1 overflow-y-auto p-2">
+    <aside className="w-64 shrink-0 border-r border-[var(--border)] bg-[var(--panel)] flex flex-col">
+      <div className="flex items-center gap-2 px-4 h-12 border-b border-[var(--border)]">
+        <FolderTree size={15} className="text-[var(--muted)]" />
+        <span className="text-xs font-semibold tracking-wide text-[var(--muted)] flex-1">NESTED TABS</span>
+        <button onClick={addGroup} className="text-[var(--muted)] hover:text-[var(--text)]" title="New group">
+          <FolderPlus size={16} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
         {tree.top.map((ref) => {
           const group = groups[ref];
           if (group) {
@@ -157,7 +164,7 @@ export function Sidebar() {
             return (
               <div
                 key={group.id}
-                className={overGroup ? "rounded ring-1 ring-blue-400/70" : ""}
+                className={overGroup ? "rounded-lg ring-1 ring-[var(--accent)]/60" : ""}
                 onDragOver={allowDrop(`g:${group.id}`)}
                 onDrop={dropGroup(group.id, null)}
               >
@@ -165,79 +172,47 @@ export function Sidebar() {
                   draggable
                   onDragStart={onDragStart("group", group.id)}
                   onDragEnd={onDragEnd}
-                  className={`flex items-center gap-1.5 px-1 py-1 text-xs uppercase tracking-wide text-gray-400 ${insertBar(
+                  className={`flex items-center gap-1.5 px-2 py-1.5 text-xs uppercase tracking-wide text-[var(--faint)] ${insertBar(
                     `top:${group.id}`,
                   )}`}
                 >
                   <button
                     onClick={() => sendMessage({ type: "group:toggle", groupId: group.id })}
-                    className="w-4 text-gray-500 hover:text-gray-200"
-                    title={group.isOpen ? "Collapse" : "Expand"}
+                    className="w-4 hover:text-[var(--text)]"
                   >
                     {group.isOpen ? "▾" : "▸"}
                   </button>
-                  <span
-                    className="inline-block w-2 h-2 rounded-full"
-                    style={{ background: COLOR_HEX[group.color] }}
-                  />
-                  <EditableLabel
-                    value={group.label}
-                    onCommit={(v) => rename("group", group.id, v)}
-                    className="flex-1 truncate"
-                  />
-                  <button
-                    onClick={() => addSession(group.id)}
-                    className="text-gray-500 hover:text-gray-200 px-1"
-                    title="New session in group"
-                  >
-                    +
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ background: COLOR_HEX[group.color] }} />
+                  <EditableLabel value={group.label} onCommit={(v) => rename("group", group.id, v)} className="flex-1 truncate" />
+                  <button onClick={() => addSession(group.id)} className="hover:text-[var(--text)]" title="New subtab in group">
+                    <Plus size={13} />
                   </button>
                 </div>
                 {group.isOpen &&
                   children.map((sid) => (
-                    <div key={sid} className="ml-3">
-                      <SessionRow
-                        id={sid}
-                        dot={COLOR_HEX[group.color]}
-                        overKey={`c:${sid}`}
-                        onDrop={dropGroup(group.id, sid)}
-                      />
+                    <div key={sid} className="ml-2">
+                      <SessionRow id={sid} dot={COLOR_HEX[group.color]} overKey={`c:${sid}`} onDrop={dropGroup(group.id, sid)} />
                     </div>
                   ))}
               </div>
             );
           }
-          // ungrouped session
-          return (
-            <SessionRow
-              key={ref}
-              id={ref}
-              overKey={`top:${ref}`}
-              onDrop={dropTop(ref)}
-            />
-          );
+          return <SessionRow key={ref} id={ref} overKey={`top:${ref}`} onDrop={dropTop(ref)} />;
         })}
 
-        {/* trailing drop zone: append to top level / ungroup */}
         <div
           onDragOver={allowDrop("bottom")}
           onDrop={dropTop(null)}
-          className={`h-8 mt-1 rounded ${over === "bottom" ? "bg-blue-400/10 ring-1 ring-blue-400/50" : ""}`}
+          className={`h-8 mt-1 rounded-lg ${over === "bottom" ? "ring-1 ring-[var(--accent)]/50 bg-[var(--accent)]/5" : ""}`}
         />
       </div>
 
-      <div className="border-t border-[var(--color-border)] p-2 flex gap-2">
+      <div className="border-t border-[var(--border)] p-3">
         <button
           onClick={() => addSession()}
-          className="flex-1 text-xs py-1.5 rounded bg-[var(--color-bg)] text-gray-300 hover:text-white"
+          className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
         >
-          + Session
-        </button>
-        <button
-          onClick={addGroup}
-          className="flex-1 text-xs py-1.5 rounded bg-[var(--color-bg)] text-gray-300 hover:text-white"
-        >
-          + Group
+          <Plus size={15} /> Add subtab
         </button>
       </div>
     </aside>

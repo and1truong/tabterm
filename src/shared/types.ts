@@ -95,6 +95,7 @@ export type ClientMessage =
   | { type: "session:delete"; sessionId: string }
   | { type: "group:create"; primaryTabId: string; label: string; color: GroupColor }
   | { type: "group:toggle"; groupId: string }
+  | { type: "tab:create"; label: string; id?: string }
   | { type: "rename"; entity: "primaryTab" | "group" | "session"; id: string; label: string }
   // Full desired sidebar layout for a tab after a drag. `order` is the flat
   // top-level list of `groupId | sessionId`; `groups` maps each groupId to its

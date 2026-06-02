@@ -8,6 +8,7 @@ import type {
   ServerMessage,
   Session,
 } from "../shared/types.ts";
+import { applyTheme, getInitialTheme, type Theme } from "./theme.ts";
 
 type ConnStatus = "connecting" | "open" | "closed";
 
@@ -17,12 +18,18 @@ interface StoreState extends AppState {
   activeSessionId: string | null;
   // Per-session AI history, loaded lazily over REST and kept live via WS.
   aiHistory: Record<string, AiMessage[]>;
+  theme: Theme;
+  showNotes: boolean;
+  termTheme: string;
 
   setStatus: (s: ConnStatus) => void;
   applyServerMessage: (msg: ServerMessage) => void;
   setActivePrimaryTab: (id: string) => void;
   setActiveSession: (id: string | null) => void;
   setAiHistory: (sessionId: string, messages: AiMessage[]) => void;
+  toggleTheme: () => void;
+  toggleNotes: () => void;
+  setTermTheme: (name: string) => void;
 }
 
 const empty: AppState = { primaryTabs: {}, groups: {}, sessions: {}, order: {}, notes: {} };
@@ -33,6 +40,9 @@ export const useStore = create<StoreState>((set, get) => ({
   activePrimaryTabId: null,
   activeSessionId: null,
   aiHistory: {},
+  theme: getInitialTheme(),
+  showNotes: true,
+  termTheme: "Slate Standard",
 
   setStatus: (status) => set({ status }),
 
@@ -40,6 +50,13 @@ export const useStore = create<StoreState>((set, get) => ({
   setActiveSession: (id) => set({ activeSessionId: id }),
   setAiHistory: (sessionId, messages) =>
     set({ aiHistory: { ...get().aiHistory, [sessionId]: messages } }),
+  toggleTheme: () => {
+    const theme = get().theme === "dark" ? "light" : "dark";
+    applyTheme(theme);
+    set({ theme });
+  },
+  toggleNotes: () => set({ showNotes: !get().showNotes }),
+  setTermTheme: (termTheme) => set({ termTheme }),
 
   applyServerMessage: (msg) => {
     if (msg.type === "ai") {

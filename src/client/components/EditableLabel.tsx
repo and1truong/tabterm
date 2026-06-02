@@ -44,7 +44,7 @@ export function EditableLabel({
           e.stopPropagation();
         }}
         onClick={(e) => e.stopPropagation()}
-        className={`bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-1 outline-none text-inherit ${className}`}
+        className={`bg-[var(--bg)] border border-[var(--border-2)] rounded px-1 outline-none text-inherit ${className}`}
       />
     );
   }
