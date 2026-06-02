@@ -240,8 +240,8 @@ export function createSession(
   primaryTabId: string,
   groupId: string | undefined,
   label: string,
+  id: string = randomUUID(),
 ): { session: Session; order: string[] | null } {
-  const id = randomUUID();
   const position = (q.maxSessionPos.get(primaryTabId)?.p ?? -1) + 1;
   q.insertSession.run(id, primaryTabId, groupId ?? null, label, position);
   // Ungrouped sessions live in the flat sidebar order; grouped sessions are

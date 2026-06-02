@@ -89,7 +89,9 @@ export type ServerMessage =
 
 // Client → Server
 export type ClientMessage =
-  | { type: "session:create"; primaryTabId: string; groupId?: string; label: string }
+  // `id` is optional: when the client supplies one it can focus the new session
+  // immediately (before the broadcast round-trips); otherwise the server mints it.
+  | { type: "session:create"; primaryTabId: string; groupId?: string; label: string; id?: string }
   | { type: "session:delete"; sessionId: string }
   | { type: "group:create"; primaryTabId: string; label: string; color: GroupColor }
   | { type: "group:toggle"; groupId: string }

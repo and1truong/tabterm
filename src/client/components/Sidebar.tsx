@@ -50,7 +50,9 @@ export function Sidebar() {
   const addSession = (groupId?: string) => {
     const label = prompt("Session name?");
     if (!label) return;
-    sendMessage({ type: "session:create", primaryTabId: tabId, groupId, label });
+    const id = crypto.randomUUID();
+    sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label });
+    setActiveSession(id); // focus the new session immediately on this device
   };
   const rename = (entity: "group" | "session", id: string, label: string) =>
     sendMessage({ type: "rename", entity, id, label });
