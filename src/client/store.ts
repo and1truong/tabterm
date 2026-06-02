@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  AiMessage,
   AppState,
   Group,
   Note,
@@ -14,11 +15,14 @@ interface StoreState extends AppState {
   status: ConnStatus;
   activePrimaryTabId: string | null;
   activeSessionId: string | null;
+  // Per-session AI history, loaded lazily over REST and kept live via WS.
+  aiHistory: Record<string, AiMessage[]>;
 
   setStatus: (s: ConnStatus) => void;
   applyServerMessage: (msg: ServerMessage) => void;
   setActivePrimaryTab: (id: string) => void;
   setActiveSession: (id: string | null) => void;
+  setAiHistory: (sessionId: string, messages: AiMessage[]) => void;
 }
 
 const empty: AppState = { primaryTabs: {}, groups: {}, sessions: {}, order: {}, notes: {} };
@@ -28,13 +32,26 @@ export const useStore = create<StoreState>((set, get) => ({
   status: "connecting",
   activePrimaryTabId: null,
   activeSessionId: null,
+  aiHistory: {},
 
   setStatus: (status) => set({ status }),
 
   setActivePrimaryTab: (id) => set({ activePrimaryTabId: id, activeSessionId: null }),
   setActiveSession: (id) => set({ activeSessionId: id }),
+  setAiHistory: (sessionId, messages) =>
+    set({ aiHistory: { ...get().aiHistory, [sessionId]: messages } }),
 
   applyServerMessage: (msg) => {
+    if (msg.type === "ai") {
+      // Only append if this device has loaded that session's history; otherwise
+      // it will fetch the full history when the panel opens.
+      const cur = get().aiHistory[msg.sessionId];
+      if (cur !== undefined) {
+        set({ aiHistory: { ...get().aiHistory, [msg.sessionId]: [...cur, ...msg.messages] } });
+      }
+      return;
+    }
+
     if (msg.type === "init") {
       const { state } = msg;
       const firstTab = Object.values(state.primaryTabs).sort(

@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, Entity, ServerMessage } from "../shared/types.ts";
+import type { AiMessage, ClientMessage, Entity, ServerMessage } from "../shared/types.ts";
 import {
   applyLayout,
   createGroup,
@@ -34,6 +34,12 @@ function setPatch(entity: Entity, data: unknown): ServerMessage {
 export function onOpen(ws: ServerWebSocket<unknown>): void {
   pool.add(ws);
   send(ws, { type: "init", state: loadState() });
+}
+
+// Broadcast newly-persisted AI turns so every connected device's open assistant
+// panel updates live (called by the AI proxy after a chat completes).
+export function broadcastAi(sessionId: string, messages: AiMessage[]): void {
+  broadcast({ type: "ai", sessionId, messages });
 }
 
 export function onClose(ws: ServerWebSocket<unknown>): void {

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AiChatRequest } from "../shared/types.ts";
 import { addAiTurn, getAiHistory, sessionMeta } from "./db.ts";
+import { broadcastAi } from "./ws.ts";
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 2048;
@@ -86,6 +87,12 @@ export async function handleChat(req: Request): Promise<Response> {
     // Persist the raw question + reply (never the scrollback).
     addAiTurn(sessionId, "user", message);
     addAiTurn(sessionId, "assistant", reply);
+
+    // Push both turns to every connected device's assistant panel.
+    broadcastAi(sessionId, [
+      { role: "user", content: message },
+      { role: "assistant", content: reply },
+    ]);
 
     return Response.json({ reply });
   } catch (err) {

@@ -82,7 +82,10 @@ export interface AiErrorResponse {
 export type ServerMessage =
   | { type: "init"; state: AppState }
   | { type: "patch"; entity: Entity; op: "set"; data: unknown }
-  | { type: "patch"; entity: Entity; op: "delete"; id: string };
+  | { type: "patch"; entity: Entity; op: "delete"; id: string }
+  // New AI turns to append to a session's history (broadcast so other devices
+  // see the conversation live). AI history itself is not in AppState.
+  | { type: "ai"; sessionId: string; messages: AiMessage[] };
 
 // Client → Server
 export type ClientMessage =

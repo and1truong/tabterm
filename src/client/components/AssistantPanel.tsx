@@ -1,37 +1,38 @@
 import { useEffect, useRef, useState } from "react";
-import type { AiMessage } from "../../shared/types.ts";
 import { captureScrollback } from "../terminals.ts";
+import { useStore } from "../store.ts";
 
-// Per-session AI chat. History is loaded over REST (GET /api/ai/history) and
-// new turns go through POST /api/ai/chat, which captures the live terminal
-// scrollback as context (Req 7/9). Enter sends; Shift+Enter inserts a newline.
+// Per-session AI chat. History lives in the store: loaded over REST on open and
+// kept live via WS `ai` broadcasts (so other devices update without refresh).
+// New turns arrive via the broadcast, so we don't optimistically append — we
+// just show the in-flight question as a pending bubble until it lands.
 export function AssistantPanel({ sessionId }: { sessionId: string }) {
-  const [messages, setMessages] = useState<AiMessage[]>([]);
+  const messages = useStore((s) => s.aiHistory[sessionId]);
+  const setAiHistory = useStore((s) => s.setAiHistory);
+
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setMessages([]);
     setError(null);
     fetch(`/api/ai/history?sessionId=${encodeURIComponent(sessionId)}`)
       .then((r) => r.json())
-      .then((d) => setMessages(d.messages ?? []))
+      .then((d) => setAiHistory(sessionId, d.messages ?? []))
       .catch(() => setError("Failed to load history."));
-  }, [sessionId]);
+  }, [sessionId, setAiHistory]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, busy]);
+  }, [messages, pending]);
 
   async function send() {
     const message = input.trim();
-    if (!message || busy) return;
+    if (!message || pending) return;
     setInput("");
     setError(null);
-    setMessages((m) => [...m, { role: "user", content: message }]);
-    setBusy(true);
+    setPending(message);
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
@@ -39,27 +40,26 @@ export function AssistantPanel({ sessionId }: { sessionId: string }) {
         body: JSON.stringify({ sessionId, message, scrollback: captureScrollback(sessionId) }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? `Request failed (${res.status}).`);
-      } else {
-        setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
-      }
+      if (!res.ok) setError(data.error ?? `Request failed (${res.status}).`);
+      // On success the user+assistant turns arrive via the WS `ai` broadcast.
     } catch {
       setError("Network error.");
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   }
+
+  const history = messages ?? [];
 
   return (
     <div className="h-full flex flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.length === 0 && !error && (
+        {history.length === 0 && !pending && !error && (
           <div className="text-sm text-gray-500">
             Ask about this session. The assistant sees your recent terminal output.
           </div>
         )}
-        {messages.map((m, i) => (
+        {history.map((m, i) => (
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
             <div
               className={`inline-block max-w-[90%] whitespace-pre-wrap text-left rounded px-2.5 py-1.5 text-sm ${
@@ -72,7 +72,14 @@ export function AssistantPanel({ sessionId }: { sessionId: string }) {
             </div>
           </div>
         ))}
-        {busy && <div className="text-sm text-gray-500">thinking…</div>}
+        {pending && (
+          <div className="text-right">
+            <div className="inline-block max-w-[90%] whitespace-pre-wrap text-left rounded px-2.5 py-1.5 text-sm bg-blue-600/15 text-gray-400 italic">
+              {pending}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">thinking…</div>
+          </div>
+        )}
         {error && (
           <div className="text-sm text-red-400 border border-red-500/40 rounded p-2">{error}</div>
         )}

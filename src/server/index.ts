@@ -49,7 +49,7 @@ const server = Bun.serve({
     // Per-session PTY proxy WS: /gotty/ws/:sessionId
     if (url.pathname.startsWith("/gotty/ws/")) {
       const sessionId = url.pathname.slice("/gotty/ws/".length);
-      if (server.upgrade(req, { data: { kind: "gotty", sessionId, queue: [] } })) return undefined;
+      if (server.upgrade(req, { data: { kind: "gotty", sessionId } })) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 

@@ -41,6 +41,7 @@ test: typecheck ## Typecheck, then run smoke + e2e tests against a fresh server
 	  $(BUN) scripts/smoke-v3.ts; \
 	  $(BUN) scripts/smoke-v4.ts; \
 	  $(BUN) scripts/e2e-pty.ts; \
+	  $(BUN) scripts/shared-pty.ts; \
 	  printf '\nALL TESTS PASSED\n'
 
 clean: ## Remove build output, the SQLite db, and test artifacts

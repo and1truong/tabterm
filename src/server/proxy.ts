@@ -1,74 +1,140 @@
 import type { ServerWebSocket } from "bun";
 import { ensure, portOf } from "./gotty.ts";
 
-// Per-browser-connection proxy state. Each browser WS maps to its own upstream
-// WS to the session's GoTTY (and thus its own forked shell).
+// Shared-terminal proxy: every browser connection to a session attaches to ONE
+// upstream GoTTY connection (one shell), so all devices see identical output
+// and any device's input reaches the same shell (tmux-style sharing). The
+// upstream is kept alive while viewers come and go so shell state persists.
+
 export interface ProxyData {
   kind: "gotty";
   sessionId: string;
-  upstream?: WebSocket;
-  queue: string[]; // GoTTY-framed frames buffered until upstream is open
 }
 
+interface Shared {
+  sessionId: string;
+  upstream: WebSocket | null;
+  ready: boolean;
+  clients: Set<ServerWebSocket<ProxyData>>;
+  sizes: Map<ServerWebSocket<ProxyData>, { cols: number; rows: number }>;
+  outQueue: string[]; // GoTTY-framed frames buffered until upstream is open
+  buffer: Uint8Array[]; // recent decoded output, replayed to new clients
+  bufferBytes: number;
+  lastSize: string; // last resize frame sent, to avoid spamming
+}
+
+const BUFFER_CAP = 128 * 1024;
 const td = new TextDecoder();
+const sessions = new Map<string, Shared>();
 
-function toGottyFrame(browserMsg: string | Buffer): string | null {
-  // Browser → proxy contract:
-  //   string  = resize JSON {cols, rows}
-  //   binary  = raw keystroke bytes
-  if (typeof browserMsg === "string") {
-    try {
-      const { cols, rows } = JSON.parse(browserMsg) as { cols: number; rows: number };
-      return "3" + JSON.stringify({ columns: cols, rows: rows });
-    } catch {
-      return null;
-    }
-  }
-  return "1" + td.decode(browserMsg); // GoTTY Input
+function fromBase64(s: string): Uint8Array {
+  return Uint8Array.fromBase64 ? Uint8Array.fromBase64(s) : new Uint8Array(Buffer.from(s, "base64"));
 }
 
-export async function onOpen(ws: ServerWebSocket<ProxyData>): Promise<void> {
-  const { sessionId } = ws.data;
-  const port = portOf(sessionId) ?? (await ensure(sessionId));
+function bufferOutput(s: Shared, bytes: Uint8Array): void {
+  s.buffer.push(bytes);
+  s.bufferBytes += bytes.length;
+  while (s.bufferBytes > BUFFER_CAP && s.buffer.length > 1) {
+    s.bufferBytes -= s.buffer.shift()!.length;
+  }
+}
 
+function sendUpstream(s: Shared, frame: string): void {
+  if (s.upstream && s.ready) s.upstream.send(frame);
+  else s.outQueue.push(frame);
+}
+
+// Resize the shared PTY to the smallest attached client (so no client's view is
+// clipped), matching tmux's behavior with multiple attached terminals.
+function applyMinSize(s: Shared): void {
+  if (s.sizes.size === 0) return;
+  let cols = Infinity;
+  let rows = Infinity;
+  for (const { cols: c, rows: r } of s.sizes.values()) {
+    cols = Math.min(cols, c);
+    rows = Math.min(rows, r);
+  }
+  const frame = "3" + JSON.stringify({ columns: cols, rows: rows });
+  if (frame !== s.lastSize) {
+    s.lastSize = frame;
+    sendUpstream(s, frame);
+  }
+}
+
+async function connectUpstream(s: Shared): Promise<void> {
+  const port = portOf(s.sessionId) ?? (await ensure(s.sessionId));
   const upstream = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-  ws.data.upstream = upstream;
+  s.upstream = upstream;
 
   upstream.onopen = () => {
-    // GoTTY requires an init frame before it starts the shell.
     upstream.send(JSON.stringify({ AuthToken: "", Arguments: "" }));
-    for (const frame of ws.data.queue) upstream.send(frame);
-    ws.data.queue = [];
+    s.ready = true;
+    for (const frame of s.outQueue) upstream.send(frame);
+    s.outQueue = [];
   };
 
   upstream.onmessage = (ev) => {
     const data = typeof ev.data === "string" ? ev.data : td.decode(ev.data as ArrayBuffer);
-    const type = data[0];
-    if (type === "1") {
-      // GoTTY Output: base64-encoded PTY bytes → raw binary to the browser.
-      const bytes = Uint8Array.fromBase64
-        ? Uint8Array.fromBase64(data.slice(1))
-        : Buffer.from(data.slice(1), "base64");
-      ws.send(bytes);
-    }
-    // other types (title/pong/prefs) are not needed by xterm.js
+    if (data[0] !== "1") return; // only Output frames matter to xterm
+    const bytes = fromBase64(data.slice(1));
+    bufferOutput(s, bytes);
+    for (const client of s.clients) client.send(bytes);
   };
 
-  upstream.onclose = () => ws.close();
-  upstream.onerror = () => ws.close();
+  // Upstream gone (GoTTY died / restarted): drop the shared entry so the next
+  // client connect recreates it against the (possibly respawned) process.
+  const teardown = () => {
+    if (sessions.get(s.sessionId) === s) sessions.delete(s.sessionId);
+    for (const client of s.clients) client.close();
+  };
+  upstream.onclose = teardown;
+  upstream.onerror = teardown;
+}
+
+export async function onOpen(ws: ServerWebSocket<ProxyData>): Promise<void> {
+  const { sessionId } = ws.data;
+  let s = sessions.get(sessionId);
+  if (!s) {
+    s = {
+      sessionId,
+      upstream: null,
+      ready: false,
+      clients: new Set(),
+      sizes: new Map(),
+      outQueue: [],
+      buffer: [],
+      bufferBytes: 0,
+      lastSize: "",
+    };
+    sessions.set(sessionId, s); // register synchronously to avoid double-create
+    await connectUpstream(s);
+  }
+  s.clients.add(ws);
+  // Replay recent output so a newly-attached device isn't blank.
+  for (const chunk of s.buffer) ws.send(chunk);
 }
 
 export function onMessage(ws: ServerWebSocket<ProxyData>, message: string | Buffer): void {
-  const frame = toGottyFrame(message);
-  if (frame === null) return;
-  const upstream = ws.data.upstream;
-  if (upstream && upstream.readyState === WebSocket.OPEN) {
-    upstream.send(frame);
-  } else {
-    ws.data.queue.push(frame);
+  const s = sessions.get(ws.data.sessionId);
+  if (!s) return;
+  if (typeof message === "string") {
+    try {
+      const { cols, rows } = JSON.parse(message) as { cols: number; rows: number };
+      s.sizes.set(ws, { cols, rows });
+      applyMinSize(s);
+    } catch {
+      // ignore malformed resize
+    }
+    return;
   }
+  sendUpstream(s, "1" + td.decode(message)); // GoTTY Input
 }
 
 export function onClose(ws: ServerWebSocket<ProxyData>): void {
-  ws.data.upstream?.close();
+  const s = sessions.get(ws.data.sessionId);
+  if (!s) return;
+  s.clients.delete(ws);
+  s.sizes.delete(ws);
+  applyMinSize(s);
+  // Keep the upstream open with no viewers so shell state survives reconnects.
 }
