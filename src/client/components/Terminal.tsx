@@ -101,6 +101,44 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     });
     const onResize = term.onResize(sendResize);
 
+    const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+    const pathsFromDrop = (dt: DataTransfer): string[] => {
+      const uriList = dt.getData("text/uri-list");
+      if (uriList) {
+        const paths: string[] = [];
+        for (const line of uriList.split(/\r?\n/)) {
+          const t = line.trim();
+          if (!t || t.startsWith("#")) continue;
+          if (t.startsWith("file://")) {
+            try {
+              paths.push(decodeURIComponent(new URL(t).pathname));
+            } catch {
+              // skip malformed
+            }
+          }
+        }
+        if (paths.length) return paths;
+      }
+      return Array.from(dt.files).map((f) => f.name);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      const paths = pathsFromDrop(e.dataTransfer);
+      if (!paths.length) return;
+      const text = paths.map(shellQuote).join(" ");
+      if (ws?.readyState === WebSocket.OPEN) ws.send(enc.encode(text));
+      term.focus();
+    };
+    host.addEventListener("dragover", onDragOver);
+    host.addEventListener("drop", onDrop);
+
     const unregister = registerScrollback(sessionId, () => {
       const buf = term.buffer.active;
       const lines: string[] = [];
@@ -124,6 +162,8 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       clearTimeout(reconnectTimer);
       ro.disconnect();
       unregister();
+      host.removeEventListener("dragover", onDragOver);
+      host.removeEventListener("drop", onDrop);
       onData.dispose();
       onResize.dispose();
       ws?.close();
