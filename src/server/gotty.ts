@@ -8,7 +8,16 @@ import { allSessionIds, setSessionPort } from "./db.ts";
 
 const GOTTY_BIN = join(import.meta.dir, "../../bin/gotty");
 const BASE_PORT = Number(process.env.GOTTY_BASE_PORT ?? 4001);
-const SHELL = process.env.SHELL || "bash";
+const BUNDLED_INIT = join(import.meta.dir, "session-init.bash");
+
+// The shell command GoTTY forks for each session. By default we launch bash with
+// our prompt rcfile (which sources ~/.bashrc first). SESSION_INIT can point at a
+// custom rcfile, or be "off" to fall back to a plain $SHELL with no injection.
+function shellCommand(): string[] {
+  const init = process.env.SESSION_INIT;
+  if (init === "off") return [process.env.SHELL || "bash"];
+  return ["bash", "--rcfile", init || BUNDLED_INIT, "-i"];
+}
 
 interface GoTTYProcess {
   proc: Subprocess;
@@ -44,6 +53,7 @@ export async function ensure(sessionId: string): Promise<number> {
   if (existing && !existing.proc.killed) return existing.port;
 
   const port = allocatePort();
+  const cmd = shellCommand();
   const proc = spawn(
     [
       GOTTY_BIN,
@@ -51,7 +61,7 @@ export async function ensure(sessionId: string): Promise<number> {
       "--address", "127.0.0.1",
       "--permit-write",
       "--ws-origin", ".*",
-      SHELL,
+      ...cmd,
     ],
     { stdout: "ignore", stderr: "ignore" },
   );
@@ -60,7 +70,7 @@ export async function ensure(sessionId: string): Promise<number> {
 
   const ready = await waitForPort(port);
   if (!ready) console.warn(`[gotty] session ${sessionId} not listening on :${port} in time`);
-  else console.log(`[gotty] session ${sessionId} -> ${SHELL} on :${port}`);
+  else console.log(`[gotty] session ${sessionId} -> ${cmd.join(" ")} on :${port}`);
   return port;
 }
 
