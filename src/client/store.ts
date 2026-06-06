@@ -86,13 +86,11 @@ export const useStore = create<StoreState>((set, get) => ({
       if (msg.entity === "session") {
         const sessions = { ...get().sessions };
         delete sessions[msg.id];
-        const activeSessionId =
-          get().activeSessionId === msg.id ? null : get().activeSessionId;
-        set({ sessions, activeSessionId });
-      } else if (msg.entity === "note") {
         const notes = { ...get().notes };
         delete notes[msg.id];
-        set({ notes });
+        const activeSessionId =
+          get().activeSessionId === msg.id ? null : get().activeSessionId;
+        set({ sessions, notes, activeSessionId });
       }
       return;
     }
@@ -123,7 +121,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       case "note": {
         const n = msg.data as Note;
-        set({ notes: { ...get().notes, [n.id]: n } });
+        set({ notes: { ...get().notes, [n.sessionId]: n } });
         break;
       }
     }

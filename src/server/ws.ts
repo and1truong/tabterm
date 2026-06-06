@@ -3,15 +3,13 @@ import type { AiMessage, ClientMessage, Entity, ServerMessage } from "../shared/
 import {
   applyLayout,
   createGroup,
-  createNote,
   createSession,
   createTab,
-  deleteNote,
   deleteSession,
   loadState,
   renameEntity,
   toggleGroup,
-  updateNote,
+  upsertNote,
 } from "./db.ts";
 import { ensure, kill } from "./gotty.ts";
 
@@ -99,19 +97,8 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       for (const session of sessions) broadcast(setPatch("session", session));
       break;
     }
-    case "note:create": {
-      broadcast(setPatch("note", createNote(msg.sessionId)));
-      break;
-    }
     case "note:update": {
-      const note = updateNote(msg.noteId, msg.content);
-      if (note) broadcast(setPatch("note", note));
-      break;
-    }
-    case "note:delete": {
-      if (deleteNote(msg.noteId)) {
-        broadcast({ type: "patch", entity: "note", op: "delete", id: msg.noteId });
-      }
+      broadcast(setPatch("note", upsertNote(msg.sessionId, msg.content)));
       break;
     }
   }

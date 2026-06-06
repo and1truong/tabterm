@@ -49,10 +49,8 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS notes (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
+    session_id TEXT PRIMARY KEY,
     content TEXT NOT NULL DEFAULT '',
-    position INTEGER NOT NULL,
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
@@ -64,6 +62,28 @@ db.exec(`
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 `);
+
+// Migrate the old multi-row notes schema (id, position) to one row per session,
+// collapsing a session's notes into a single record in position order.
+const noteCols = db
+  .query<{ name: string }, []>("PRAGMA table_info(notes)")
+  .all()
+  .map((c) => c.name);
+if (noteCols.includes("position")) {
+  db.exec(`
+    CREATE TABLE notes_new (
+      session_id TEXT PRIMARY KEY,
+      content TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    INSERT INTO notes_new (session_id, content, updated_at)
+      SELECT session_id, group_concat(content, char(10) || char(10)), MAX(updated_at)
+      FROM (SELECT * FROM notes ORDER BY position)
+      GROUP BY session_id;
+    DROP TABLE notes;
+    ALTER TABLE notes_new RENAME TO notes;
+  `);
+}
 
 // ---- row mappers -------------------------------------------------------------
 
@@ -78,7 +98,7 @@ interface SessionRow {
 }
 interface OrderRow { primary_tab_id: string; order_json: string }
 interface NoteRow {
-  id: string; session_id: string; content: string; position: number; updated_at: number;
+  session_id: string; content: string; updated_at: number;
 }
 interface AiRow { role: string; content: string }
 
@@ -103,10 +123,8 @@ const toSession = (r: SessionRow): Session => ({
   position: r.position,
 });
 const toNote = (r: NoteRow): Note => ({
-  id: r.id,
   sessionId: r.session_id,
   content: r.content,
-  position: r.position,
   updatedAt: r.updated_at,
 });
 
@@ -153,17 +171,11 @@ const q = {
       "ON CONFLICT(primary_tab_id) DO UPDATE SET order_json = excluded.order_json",
   ),
 
-  allNotes: db.query<NoteRow, []>("SELECT * FROM notes ORDER BY position"),
-  getNote: db.query<NoteRow, [string]>("SELECT * FROM notes WHERE id = ?"),
-  insertNote: db.query(
-    "INSERT INTO notes (id, session_id, content, position) VALUES (?, ?, '', ?)",
-  ),
-  updateNote: db.query(
-    "UPDATE notes SET content = ?, updated_at = unixepoch() WHERE id = ?",
-  ),
-  deleteNote: db.query("DELETE FROM notes WHERE id = ?"),
-  maxNotePos: db.query<{ p: number | null }, [string]>(
-    "SELECT MAX(position) AS p FROM notes WHERE session_id = ?",
+  allNotes: db.query<NoteRow, []>("SELECT * FROM notes"),
+  getNote: db.query<NoteRow, [string]>("SELECT * FROM notes WHERE session_id = ?"),
+  upsertNote: db.query(
+    "INSERT INTO notes (session_id, content, updated_at) VALUES (?, ?, unixepoch()) " +
+      "ON CONFLICT(session_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
   ),
 
   aiHistory: db.query<AiRow, [string]>(
@@ -190,7 +202,7 @@ export function loadState(): AppState {
   for (const r of q.allOrders.all()) order[r.primary_tab_id] = JSON.parse(r.order_json);
 
   const notes: AppState["notes"] = {};
-  for (const r of q.allNotes.all()) notes[r.id] = toNote(r);
+  for (const r of q.allNotes.all()) notes[r.session_id] = toNote(r);
 
   return { primaryTabs, groups, sessions, order, notes };
 }
@@ -343,23 +355,9 @@ export function allSessionIds(): string[] {
 
 // ---- notes -------------------------------------------------------------------
 
-export function createNote(sessionId: string): Note {
-  const id = randomUUID();
-  const position = (q.maxNotePos.get(sessionId)?.p ?? -1) + 1;
-  q.insertNote.run(id, sessionId, position);
-  return toNote(q.getNote.get(id)!);
-}
-
-export function updateNote(noteId: string, content: string): Note | null {
-  if (!q.getNote.get(noteId)) return null;
-  q.updateNote.run(content, noteId);
-  return toNote(q.getNote.get(noteId)!);
-}
-
-export function deleteNote(noteId: string): boolean {
-  if (!q.getNote.get(noteId)) return false;
-  q.deleteNote.run(noteId);
-  return true;
+export function upsertNote(sessionId: string, content: string): Note {
+  q.upsertNote.run(sessionId, content);
+  return toNote(q.getNote.get(sessionId)!);
 }
 
 // ---- AI history --------------------------------------------------------------

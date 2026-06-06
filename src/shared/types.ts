@@ -37,11 +37,10 @@ export interface Session {
   position: number;
 }
 
+// One note per session. Keyed by sessionId in AppState.notes.
 export interface Note {
-  id: string;
   sessionId: string;
   content: string;
-  position: number;
   updatedAt: number;
 }
 
@@ -101,6 +100,4 @@ export type ClientMessage =
   // top-level list of `groupId | sessionId`; `groups` maps each groupId to its
   // ordered child session ids. The server derives groupId/position from this.
   | { type: "layout"; primaryTabId: string; order: string[]; groups: Record<string, string[]> }
-  | { type: "note:create"; sessionId: string }
-  | { type: "note:update"; noteId: string; content: string }
-  | { type: "note:delete"; noteId: string };
+  | { type: "note:update"; sessionId: string; content: string };
