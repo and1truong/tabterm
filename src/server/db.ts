@@ -40,7 +40,8 @@ db.exec(`
     label TEXT NOT NULL,
     cwd TEXT NOT NULL DEFAULT '~',
     gotty_port INTEGER,
-    position INTEGER NOT NULL
+    position INTEGER NOT NULL,
+    closed_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS sidebar_order (
@@ -62,6 +63,15 @@ db.exec(`
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 `);
+
+// Add sessions.closed_at to pre-existing databases (NULL = open, unix ts = closed).
+const sessionCols = db
+  .query<{ name: string }, []>("PRAGMA table_info(sessions)")
+  .all()
+  .map((c) => c.name);
+if (!sessionCols.includes("closed_at")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN closed_at INTEGER");
+}
 
 // Migrate the old multi-row notes schema (id, position) to one row per session,
 // collapsing a session's notes into a single record in position order.
@@ -94,7 +104,7 @@ interface GroupRow {
 }
 interface SessionRow {
   id: string; primary_tab_id: string; group_id: string | null; label: string;
-  cwd: string; gotty_port: number | null; position: number;
+  cwd: string; gotty_port: number | null; position: number; closed_at: number | null;
 }
 interface OrderRow { primary_tab_id: string; order_json: string }
 interface NoteRow {
@@ -121,6 +131,7 @@ const toSession = (r: SessionRow): Session => ({
   cwd: r.cwd,
   gottyPort: r.gotty_port,
   position: r.position,
+  closedAt: r.closed_at,
 });
 const toNote = (r: NoteRow): Note => ({
   sessionId: r.session_id,
@@ -151,6 +162,8 @@ const q = {
   setSessionPort: db.query("UPDATE sessions SET gotty_port = ? WHERE id = ?"),
   setSessionGroupPos: db.query("UPDATE sessions SET group_id = ?, position = ? WHERE id = ?"),
   deleteSession: db.query("DELETE FROM sessions WHERE id = ?"),
+  closeSession: db.query("UPDATE sessions SET closed_at = unixepoch() WHERE id = ?"),
+  reopenSession: db.query("UPDATE sessions SET closed_at = NULL WHERE id = ?"),
 
   getPrimaryTab: db.query<PrimaryTabRow, [string]>("SELECT * FROM primary_tabs WHERE id = ?"),
   renamePrimaryTab: db.query("UPDATE primary_tabs SET label = ? WHERE id = ?"),
@@ -274,7 +287,57 @@ export function createSession(
   return { session: toSession(q.getSession.get(id)!), order };
 }
 
-export function deleteSession(
+// Soft-close: hide from sidebar, kill the shell, but keep notes + AI history.
+// Strip the id from the tab's flat order so the sidebar no longer renders it
+// (grouped sessions live under their group, so we only touch order for ungrouped).
+export function closeSession(
+  sessionId: string,
+): { session: Session; primaryTabId: string; order: string[] | null } | null {
+  const existing = q.getSession.get(sessionId);
+  if (!existing) return null;
+  q.closeSession.run(sessionId);
+  let order: string[] | null = null;
+  if (!existing.group_id) {
+    const prev = readOrder(existing.primary_tab_id);
+    if (prev.includes(sessionId)) {
+      order = prev.filter((ref) => ref !== sessionId);
+      writeOrder(existing.primary_tab_id, order);
+    }
+  }
+  return {
+    session: toSession(q.getSession.get(sessionId)!),
+    primaryTabId: existing.primary_tab_id,
+    order,
+  };
+}
+
+// Reopen a soft-closed session. If its group still exists, it re-appears under
+// that group; otherwise we drop it back at the bottom of the flat order.
+export function reopenSession(
+  sessionId: string,
+): { session: Session; primaryTabId: string; order: string[] | null } | null {
+  const existing = q.getSession.get(sessionId);
+  if (!existing) return null;
+  q.reopenSession.run(sessionId);
+  let order: string[] | null = null;
+  const groupStillExists = existing.group_id && q.getGroup.get(existing.group_id);
+  if (!groupStillExists) {
+    if (existing.group_id) q.setSessionGroupPos.run(null, 0, sessionId);
+    const prev = readOrder(existing.primary_tab_id);
+    if (!prev.includes(sessionId)) {
+      order = [...prev, sessionId];
+      writeOrder(existing.primary_tab_id, order);
+    }
+  }
+  return {
+    session: toSession(q.getSession.get(sessionId)!),
+    primaryTabId: existing.primary_tab_id,
+    order,
+  };
+}
+
+// Permanent: drop the session row + its notes + its AI history.
+export function purgeSession(
   sessionId: string,
 ): { primaryTabId: string; order: string[] | null } | null {
   const existing = q.getSession.get(sessionId);
@@ -284,8 +347,11 @@ export function deleteSession(
   q.deleteSessionAi.run(sessionId);
   let order: string[] | null = null;
   if (!existing.group_id) {
-    order = readOrder(existing.primary_tab_id).filter((ref) => ref !== sessionId);
-    writeOrder(existing.primary_tab_id, order);
+    const prev = readOrder(existing.primary_tab_id);
+    if (prev.includes(sessionId)) {
+      order = prev.filter((ref) => ref !== sessionId);
+      writeOrder(existing.primary_tab_id, order);
+    }
   }
   return { primaryTabId: existing.primary_tab_id, order };
 }
@@ -349,8 +415,10 @@ export function setSessionPort(sessionId: string, port: number | null): void {
   q.setSessionPort.run(port, sessionId);
 }
 
+// Open (non-closed) sessions only. Used by respawnAll on server boot so closed
+// sessions don't get a GoTTY shell.
 export function allSessionIds(): string[] {
-  return q.allSessions.all().map((r) => r.id);
+  return q.allSessions.all().filter((r) => r.closed_at == null).map((r) => r.id);
 }
 
 // ---- notes -------------------------------------------------------------------

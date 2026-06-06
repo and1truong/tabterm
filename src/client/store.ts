@@ -23,6 +23,7 @@ interface StoreState extends AppState {
   aiHistory: Record<string, AiMessage[]>;
   theme: Theme;
   showNotes: boolean;
+  showClosedSessions: boolean;
   termTheme: string;
 
   setStatus: (s: ConnStatus) => void;
@@ -33,6 +34,7 @@ interface StoreState extends AppState {
   setAiHistory: (sessionId: string, messages: AiMessage[]) => void;
   toggleTheme: () => void;
   toggleNotes: () => void;
+  toggleClosedSessions: () => void;
   setTermTheme: (name: string) => void;
 }
 
@@ -47,6 +49,7 @@ export const useStore = create<StoreState>((set, get) => ({
   aiHistory: {},
   theme: getInitialTheme(),
   showNotes: true,
+  showClosedSessions: false,
   termTheme: "Slate Standard",
 
   setStatus: (status) => set({ status }),
@@ -62,6 +65,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ theme });
   },
   toggleNotes: () => set({ showNotes: !get().showNotes }),
+  toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   setTermTheme: (termTheme) => set({ termTheme }),
 
   applyServerMessage: (msg) => {

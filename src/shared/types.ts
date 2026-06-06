@@ -35,6 +35,9 @@ export interface Session {
   cwd: string;
   gottyPort: number | null;
   position: number;
+  // null = open; unix timestamp = soft-closed (hidden from sidebar, viewable in
+  // the closed-sessions list, notes + AI history preserved).
+  closedAt: number | null;
 }
 
 // One note per session. Keyed by sessionId in AppState.notes.
@@ -91,7 +94,9 @@ export type ClientMessage =
   // `id` is optional: when the client supplies one it can focus the new session
   // immediately (before the broadcast round-trips); otherwise the server mints it.
   | { type: "session:create"; primaryTabId: string; groupId?: string; label: string; id?: string }
-  | { type: "session:delete"; sessionId: string }
+  | { type: "session:close"; sessionId: string }
+  | { type: "session:reopen"; sessionId: string }
+  | { type: "session:purge"; sessionId: string }
   | { type: "group:create"; primaryTabId: string; label: string; color: GroupColor }
   | { type: "group:toggle"; groupId: string }
   | { type: "tab:create"; label: string; id?: string }

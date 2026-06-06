@@ -1,4 +1,4 @@
-import { Compass, Plus } from "lucide-react";
+import { Archive, Compass, Plus } from "lucide-react";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
 import { EditableLabel } from "./EditableLabel.tsx";
@@ -27,6 +27,12 @@ export function PrimaryTabs() {
   const setActive = useStore((s) => s.setActivePrimaryTab);
   const showNotes = useStore((s) => s.showNotes);
   const toggleNotes = useStore((s) => s.toggleNotes);
+  const toggleClosedSessions = useStore((s) => s.toggleClosedSessions);
+  const closedCount = useStore((s) =>
+    Object.values(s.sessions).filter(
+      (sess) => sess.primaryTabId === s.activePrimaryTabId && sess.closedAt != null,
+    ).length,
+  );
 
   const tabs = Object.values(primaryTabs).sort((a, b) => a.position - b.position);
 
@@ -69,6 +75,16 @@ export function PrimaryTabs() {
       </button>
 
       <div className="ml-auto flex items-center gap-2.5">
+        {closedCount > 0 && (
+          <button
+            onClick={toggleClosedSessions}
+            className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]"
+            title="Closed subtabs in this workspace"
+          >
+            <Archive size={14} />
+            <span className="mono">{closedCount}</span>
+          </button>
+        )}
         <span className="text-xs font-semibold tracking-wide text-[var(--muted)]">SHOW NOTES</span>
         <Switch on={showNotes} onClick={toggleNotes} />
       </div>

@@ -40,12 +40,18 @@ export function Sidebar() {
   const tabId = primaryTabId;
   const tree = buildTree(order[tabId] ?? [], groups, sessions);
 
-  // running number across the flattened visual order
+  const isOpen = (sid: string) => sessions[sid] && sessions[sid].closedAt == null;
+
+  // running number across the flattened visual order (skipping closed sessions
+  // so the index matches what's actually rendered).
   const numberOf: Record<string, number> = {};
   let n = 0;
   for (const ref of tree.top) {
-    if (groups[ref]) for (const sid of tree.groups[ref] ?? []) numberOf[sid] = ++n;
-    else numberOf[ref] = ++n;
+    if (groups[ref]) {
+      for (const sid of tree.groups[ref] ?? []) if (isOpen(sid)) numberOf[sid] = ++n;
+    } else if (isOpen(ref)) {
+      numberOf[ref] = ++n;
+    }
   }
 
   const sendLayout = (t: Tree) =>
@@ -137,9 +143,9 @@ export function Sidebar() {
           className="opacity-0 group-hover:opacity-100 text-[var(--faint)] hover:text-red-400"
           onClick={(e) => {
             e.stopPropagation();
-            sendMessage({ type: "session:delete", sessionId: id });
+            sendMessage({ type: "session:close", sessionId: id });
           }}
-          title="Delete subtab"
+          title="Close subtab (kept in Archive)"
         >
           <X size={13} />
         </button>
@@ -201,14 +207,17 @@ export function Sidebar() {
                   </button>
                 </div>
                 {group.isOpen &&
-                  children.map((sid) => (
-                    <div key={sid} className="ml-2">
-                      <SessionRow id={sid} dot={COLOR_HEX[group.color]} overKey={`c:${sid}`} onDrop={dropGroup(group.id, sid)} />
-                    </div>
-                  ))}
+                  children
+                    .filter((sid) => isOpen(sid))
+                    .map((sid) => (
+                      <div key={sid} className="ml-2">
+                        <SessionRow id={sid} dot={COLOR_HEX[group.color]} overKey={`c:${sid}`} onDrop={dropGroup(group.id, sid)} />
+                      </div>
+                    ))}
               </div>
             );
           }
+          if (!isOpen(ref)) return null;
           return <SessionRow key={ref} id={ref} overKey={`top:${ref}`} onDrop={dropTop(ref)} />;
         })}
 

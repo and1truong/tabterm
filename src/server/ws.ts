@@ -2,12 +2,14 @@ import type { ServerWebSocket } from "bun";
 import type { AiMessage, ClientMessage, Entity, ServerMessage } from "../shared/types.ts";
 import {
   applyLayout,
+  closeSession,
   createGroup,
   createSession,
   createTab,
-  deleteSession,
   loadState,
+  purgeSession,
   renameEntity,
+  reopenSession,
   toggleGroup,
   upsertNote,
 } from "./db.ts";
@@ -72,8 +74,28 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       if (order) broadcast(setPatch("order", { primaryTabId: msg.primaryTabId, order }));
       break;
     }
-    case "session:delete": {
-      const result = deleteSession(msg.sessionId);
+    case "session:close": {
+      const result = closeSession(msg.sessionId);
+      if (!result) break;
+      kill(msg.sessionId);
+      broadcast(setPatch("session", result.session));
+      if (result.order) {
+        broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
+      }
+      break;
+    }
+    case "session:reopen": {
+      const result = reopenSession(msg.sessionId);
+      if (!result) break;
+      void ensure(msg.sessionId);
+      broadcast(setPatch("session", result.session));
+      if (result.order) {
+        broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
+      }
+      break;
+    }
+    case "session:purge": {
+      const result = purgeSession(msg.sessionId);
       if (!result) break;
       kill(msg.sessionId);
       broadcast({ type: "patch", entity: "session", op: "delete", id: msg.sessionId });
