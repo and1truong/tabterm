@@ -1,37 +1,58 @@
 import { spawn, type Subprocess } from "bun";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
+import type { SessionKind } from "../shared/types.ts";
+import { config } from "./config.ts";
 import { allSessionIds, sessionMeta, setSessionPort } from "./db.ts";
+import { extractGotty, extractSessionInit } from "./embedded.ts";
 
 // One GoTTY process per session. GoTTY itself forks a fresh shell for EACH
 // WebSocket connection, so two browsers on the same session get independent
 // shells (the "per-client shell" model) while we still track one port/session.
 
-// Compiled binaries see `import.meta.dir` as a virtual `/$bunfs/...` path,
-// so external assets must resolve next to the executable instead.
-const ROOT = import.meta.dir.startsWith("/$bunfs/")
-  ? dirname(process.execPath)
-  : join(import.meta.dir, "../..");
-const GOTTY_BIN = join(ROOT, "bin/gotty");
-const BASE_PORT = Number(process.env.GOTTY_BASE_PORT ?? 4001);
-const BUNDLED_INIT = join(ROOT, "src/server/session-init.bash");
-// The command to launch for "claude" sessions. Configurable per user/install
-// since the binary may live at e.g. ~/bin/opus instead of plain "claude".
-const CLAUDE_COMMAND = process.env.CLAUDE_COMMAND || "claude";
-// Per-session marker dir. Presence of a session's marker file means claude has
-// been launched at least once in that session — subsequent spawns use
-// `--continue` so the conversation resumes across browser-tab close, sidebar
-// reopen, and server restart.
-const MARKER_DIR = resolve("data/sessions");
+// On-disk fallbacks for dev. In the compiled binary, gotty + session-init are
+// extracted from the embedded bunfs at first use via embedded.ts.
+const REPO_ROOT = join(import.meta.dir, "../..");
+const DISK_GOTTY = config.gottyBin ?? join(REPO_ROOT, "bin/gotty");
+const DISK_INIT = join(REPO_ROOT, "src/server/session-init.bash");
+const BASE_PORT = config.gottyBasePort;
+
+async function gottyBin(): Promise<string> {
+  // User-configured gottyBin always wins (even in compiled mode).
+  if (config.gottyBin) return config.gottyBin;
+  return (await extractGotty()) ?? DISK_GOTTY;
+}
+
+async function sessionInitPath(): Promise<string> {
+  if (config.sessionInit && config.sessionInit !== "off") return config.sessionInit;
+  return (await extractSessionInit()) ?? DISK_INIT;
+}
 
 // The shell command GoTTY forks for each session. By default we launch bash with
-// our prompt rcfile (which sources ~/.bashrc first). SESSION_INIT can point at a
+// our prompt rcfile (which sources ~/.bashrc first). sessionInit can point at a
 // custom rcfile, or be "off" to fall back to a plain $SHELL with no injection.
-function shellCommand(): string[] {
-  const init = process.env.SESSION_INIT;
-  if (init === "off") return [process.env.SHELL || "bash"];
-  return ["bash", "--rcfile", init || BUNDLED_INIT, "-i"];
+async function shellCommand(): Promise<string[]> {
+  if (config.sessionInit === "off") return [process.env.SHELL || "bash"];
+  return ["bash", "--rcfile", await sessionInitPath(), "-i"];
+}
+
+// Per-session marker dir for claude-kind sessions. Presence of a session's
+// marker file means claude has been launched at least once in that session, so
+// subsequent spawns use `--continue` and the conversation resumes across
+// browser-tab close, sidebar reopen, and server restart.
+const MARKER_DIR = join(homedir(), ".cache/tabterm/sessions");
+
+// Env injected on top of process.env for a "claude" session. session-init.bash
+// reads STARTUP_COMMAND + STARTUP_MARKER to launch the configured claude binary
+// (plain on first run, --continue thereafter).
+function sessionEnv(sessionId: string, kind: SessionKind): Record<string, string> {
+  if (kind !== "claude") return {};
+  mkdirSync(MARKER_DIR, { recursive: true });
+  return {
+    STARTUP_COMMAND: config.claudeCommand,
+    STARTUP_MARKER: join(MARKER_DIR, `${sessionId}.claude-started`),
+  };
 }
 
 // Resolve a stored cwd ("", "~", "~/foo", or absolute) to a real directory.
@@ -75,25 +96,13 @@ async function waitForPort(port: number, timeoutMs = 3000): Promise<boolean> {
   return false;
 }
 
-// Build the env added on top of process.env when spawning a session's gotty
-// proc. For "claude" kind we inject STARTUP_COMMAND + STARTUP_MARKER which
-// session-init.bash reads to launch claude (with --continue on respawn).
-function sessionEnv(sessionId: string, kind: "shell" | "claude"): Record<string, string> {
-  if (kind !== "claude") return {};
-  mkdirSync(MARKER_DIR, { recursive: true });
-  return {
-    STARTUP_COMMAND: CLAUDE_COMMAND,
-    STARTUP_MARKER: join(MARKER_DIR, `${sessionId}.claude-started`),
-  };
-}
-
 // Spawn a GoTTY process for a session (idempotent). Returns its port.
 export async function ensure(sessionId: string): Promise<number> {
   const existing = procs.get(sessionId);
   if (existing && !existing.proc.killed) return existing.port;
 
   const port = allocatePort();
-  const cmd = shellCommand();
+  const [bin, cmd] = await Promise.all([gottyBin(), shellCommand()]);
   const meta = sessionMeta(sessionId);
   const cwd = resolveCwd(meta?.cwd);
   if (meta?.cwd && !cwd) {
@@ -102,7 +111,7 @@ export async function ensure(sessionId: string): Promise<number> {
   const extraEnv = sessionEnv(sessionId, meta?.kind ?? "shell");
   const proc = spawn(
     [
-      GOTTY_BIN,
+      bin,
       "--port", String(port),
       "--address", "127.0.0.1",
       "--permit-write",

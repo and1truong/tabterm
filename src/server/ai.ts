@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AiChatRequest } from "../shared/types.ts";
+import { config } from "./config.ts";
 import { addAiTurn, getAiHistory, sessionMeta } from "./db.ts";
 import { broadcastAi } from "./ws.ts";
 
@@ -16,12 +17,12 @@ const SYSTEM =
   "cannot run commands yourself; suggest commands the user can run.";
 
 function hasKey(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY;
+  return !!config.anthropicApiKey;
 }
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
-  if (!client) client = new Anthropic();
+  if (!client) client = new Anthropic({ apiKey: config.anthropicApiKey });
   return client;
 }
 

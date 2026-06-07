@@ -1,22 +1,23 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import * as ai from "./ai.ts";
+import { config } from "./config.ts";
 import { seedIfEmpty } from "./db.ts";
+import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
 import { killAll, respawnAll, startHealthMonitor } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
 import { handleApi } from "./routes.ts";
 import * as appws from "./ws.ts";
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT = config.port;
 // `bun build --compile` inlines `process.env.NODE_ENV` at build time, so a
 // runtime NODE_ENV=production has no effect on the compiled binary. Treat any
 // compiled run as prod — there's no Vite to serve the SPA in that mode.
 const COMPILED = import.meta.dir.startsWith("/$bunfs/");
 const isProd = COMPILED || process.env.NODE_ENV === "production";
-// Compiled binaries see source files via a virtual fs (`/$bunfs/...`), so
-// external assets must resolve next to the executable instead.
-const ROOT = COMPILED ? dirname(process.execPath) : join(import.meta.dir, "../..");
-const DIST = join(ROOT, "dist");
+// In dev/prod-from-source we read built assets off disk from <repo>/dist. The
+// compiled binary serves them straight out of its embedded bunfs instead.
+const DIST = join(import.meta.dir, "../..", "dist");
 
 type AppData = { kind: "app" };
 type SocketData = AppData | proxy.ProxyData;
@@ -74,6 +75,10 @@ const server = Bun.serve({
 
     if (isProd) {
       const path = url.pathname === "/" ? "/index.html" : url.pathname;
+      if (hasEmbeddedSpa()) {
+        const file = getSpaFile(path) ?? getSpaFile("/index.html");
+        return new Response(file!);
+      }
       const file = Bun.file(join(DIST, path));
       if (await file.exists()) return new Response(file);
       return new Response(Bun.file(join(DIST, "index.html")));

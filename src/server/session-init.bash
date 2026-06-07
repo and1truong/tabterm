@@ -1,13 +1,19 @@
 # Sourced via `bash --rcfile` for each console session shell.
-# Pull in the user's normal interactive config first, then our prompt.
-[ -f ~/.bashrc ] && source ~/.bashrc
 
 # ---------------------
 # Bash prompt
 # ---------------------
+# Defined + exported BEFORE sourcing ~/.bashrc and BEFORE any prompt expansion,
+# because parent shells (e.g. iTerm shell integration) often export a PS1 that
+# references parse_git_branch — without this, /etc/bashrc and any sub-shells
+# spawn warnings like `bash: parse_git_branch: command not found`.
 function parse_git_branch {
   git branch --no-color 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
 }
+export -f parse_git_branch
+
+# Pull in the user's normal interactive config, then our prompt.
+[ -f ~/.bashrc ] && source ~/.bashrc
 
 function proml {
   local        BLUE="\[\033[0;34m\]"

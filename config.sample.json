@@ -1,0 +1,5 @@
+{
+  "dbPath": "./data/state.db",
+  "port": 3000,
+  "gottyBasePort": 4001
+}

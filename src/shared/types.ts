@@ -33,7 +33,7 @@ export interface Group {
   position: number;
 }
 
-// "shell" = plain bash. "claude" = launch the server's configured CLAUDE_COMMAND
+// "shell" = plain bash. "claude" = launch the server's configured claudeCommand
 // (e.g. ~/bin/opus) on entry; on exit the user is dropped back at bash.
 export type SessionKind = "shell" | "claude";
 

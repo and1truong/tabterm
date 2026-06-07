@@ -48,6 +48,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
 
     const term = new XTerm({
       cursorBlink: true,
+      cursorStyle: "bar",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
       theme: xtermTheme(TERM_THEMES[useStore.getState().termTheme] ?? {}),

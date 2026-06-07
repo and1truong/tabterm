@@ -20,12 +20,15 @@ dev: ## Run Vite + Bun server with hot reload
 build: ## Build the client SPA into dist/
 	$(BUN) run build
 
-compile: build ## Compile server to a single binary (run from project root)
+compile: build ## Compile a single self-contained binary at dist/tabterm
 	@test -x bin/gotty || $(BUN) scripts/install-gotty.ts
-	$(BUN) build --compile --minify src/server/index.ts --outfile tabterm
+	$(BUN) scripts/gen-embed.ts
+	$(BUN) build --compile --minify src/server/index.ts --outfile dist/tabterm
+	@# Restore the dev stub so future `bun run dev` / typecheck doesn't try to
+	@# import dist/* files that may not exist.
+	@$(BUN) scripts/gen-embed.ts --stub
 	@echo
-	@echo "Built ./tabterm. Run with: NODE_ENV=production ./tabterm"
-	@echo "Must be run from this directory (needs dist/, bin/gotty, src/server/session-init.bash)."
+	@echo "Built ./dist/tabterm. Move it anywhere — SPA + gotty + init are embedded."
 
 start: build ## Build then serve the SPA + API from Bun (production)
 	$(BUN) start

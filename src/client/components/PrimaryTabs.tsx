@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Archive, Compass, Folder, FolderArchive, Plus, X } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
 import { CwdPickerModal } from "./CwdPickerModal.tsx";
@@ -46,14 +47,16 @@ export function PrimaryTabs() {
   const activeTab = activeId ? primaryTabs[activeId] : null;
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const sessionCountByTab = useStore((s) => {
-    const counts: Record<string, number> = {};
-    for (const sess of Object.values(s.sessions)) {
-      if (sess.closedAt != null) continue;
-      counts[sess.primaryTabId] = (counts[sess.primaryTabId] ?? 0) + 1;
-    }
-    return counts;
-  });
+  const sessionCountByTab = useStore(
+    useShallow((s) => {
+      const counts: Record<string, number> = {};
+      for (const sess of Object.values(s.sessions)) {
+        if (sess.closedAt != null) continue;
+        counts[sess.primaryTabId] = (counts[sess.primaryTabId] ?? 0) + 1;
+      }
+      return counts;
+    }),
+  );
 
   const hideTab = (id: string, label: string) => {
     const openSessions = sessionCountByTab[id] ?? 0;

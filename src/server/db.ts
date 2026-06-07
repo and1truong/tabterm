@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import type {
   AiMessage,
   AppState,
@@ -11,10 +12,11 @@ import type {
   Session,
   SessionKind,
 } from "../shared/types.ts";
+import { config } from "./config.ts";
 
-mkdirSync("data", { recursive: true });
+mkdirSync(dirname(config.dbPath), { recursive: true });
 
-const db = new Database("data/state.db", { create: true });
+const db = new Database(config.dbPath, { create: true });
 db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA foreign_keys = ON;");
 
