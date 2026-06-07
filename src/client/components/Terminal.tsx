@@ -96,13 +96,31 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       ws.onerror = () => ws?.close();
     };
 
-    // Shift+Enter → ESC+CR, the sequence Claude Code recognizes as a newline-in-input
-    // (matches what `claude /terminal-setup` configures iTerm2 to send).
+    // Browser-level key remaps that xterm.js doesn't handle the way macOS terminals do.
+    // Returning false suppresses xterm's own handling; preventDefault is also needed
+    // because xterm uses a hidden <textarea> for IME — without it, the browser still
+    // inserts the keystroke there and we'd see it a second time via onData.
     term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type === "keydown" && ev.key === "Enter" && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-        if (ws?.readyState === WebSocket.OPEN) ws.send(enc.encode("\x1b\r"));
+      if (ev.type !== "keydown") return true;
+
+      // Shift/Cmd/Option+Enter → LF (\n). Plain Enter sends CR (\r), which TUIs like
+      // Claude Code treat as "submit"; LF is treated as "insert newline in input".
+      // Ctrl+Enter is left alone so terminal apps that bind it (e.g. tmux) keep working.
+      if (ev.key === "Enter" && (ev.shiftKey || ev.metaKey || ev.altKey) && !ev.ctrlKey) {
+        ev.preventDefault();
+        if (ws?.readyState === WebSocket.OPEN) ws.send(enc.encode("\n"));
         return false;
       }
+
+      // Cmd+K → wipe viewport + scrollback, matching iTerm2 / Terminal.app's "Clear
+      // Buffer". Client-side only — the shell's screen state is untouched, so any
+      // running TUI (vim, htop, claude) repaints on its next refresh.
+      if (ev.key === "k" && ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+        ev.preventDefault();
+        term.clear();
+        return false;
+      }
+
       return true;
     });
 
