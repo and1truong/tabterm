@@ -105,7 +105,7 @@ export function CwdPickerModal({
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-[200px]">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5">
           {error && (
             <div className="text-sm text-red-400 px-3 py-3">{error}</div>
           )}
