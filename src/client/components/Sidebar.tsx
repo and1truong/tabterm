@@ -64,8 +64,8 @@ export function Sidebar() {
     sendMessage({ type: "group:create", primaryTabId: tabId, label, color });
   };
   const addSession = (groupId?: string) => {
-    const label = prompt("Subtab name?");
-    if (!label) return;
+    const count = Object.values(sessions).filter((s) => s.primaryTabId === tabId).length;
+    const label = `Session ${count + 1}`;
     const id = crypto.randomUUID();
     requestFocus(id);
     sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label });
