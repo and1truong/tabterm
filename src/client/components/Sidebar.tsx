@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { FolderPlus, FolderTree, Plus, X } from "lucide-react";
-import type { GroupColor } from "../../shared/types.ts";
+import { FolderPlus, FolderTree, Plus, Sparkles, X } from "lucide-react";
+import type { GroupColor, SessionKind } from "../../shared/types.ts";
 import { GROUP_COLORS } from "../../shared/types.ts";
 import { buildTree, intoGroup, toTop, type Tree } from "../layout.ts";
 import { useStore } from "../store.ts";
@@ -63,12 +63,12 @@ export function Sidebar() {
     const color = GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)];
     sendMessage({ type: "group:create", primaryTabId: tabId, label, color });
   };
-  const addSession = (groupId?: string) => {
+  const addSession = (groupId?: string, kind: SessionKind = "shell") => {
     const count = Object.values(sessions).filter((s) => s.primaryTabId === tabId).length;
-    const label = `Session ${count + 1}`;
+    const label = kind === "claude" ? `Claude ${count + 1}` : `Session ${count + 1}`;
     const id = crypto.randomUUID();
     requestFocus(id);
-    sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label });
+    sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label, kind });
   };
   const rename = (entity: "group" | "session", id: string, label: string) =>
     sendMessage({ type: "rename", entity, id, label });
@@ -228,12 +228,19 @@ export function Sidebar() {
         />
       </div>
 
-      <div className="border-t border-[var(--border)] p-3">
+      <div className="border-t border-[var(--border)] p-3 space-y-2">
         <button
           onClick={() => addSession()}
           className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
         >
-          <Plus size={15} /> Add subtab
+          <Plus size={15} /> Session
+        </button>
+        <button
+          onClick={() => addSession(undefined, "claude")}
+          className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
+          title="Launch the configured claude command (CLAUDE_COMMAND, default 'claude')"
+        >
+          <Sparkles size={14} className="text-[var(--orange)]" /> Claude session
         </button>
       </div>
     </aside>

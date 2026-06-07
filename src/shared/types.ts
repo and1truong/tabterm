@@ -33,6 +33,10 @@ export interface Group {
   position: number;
 }
 
+// "shell" = plain bash. "claude" = launch the server's configured CLAUDE_COMMAND
+// (e.g. ~/bin/opus) on entry; on exit the user is dropped back at bash.
+export type SessionKind = "shell" | "claude";
+
 export interface Session {
   id: string;
   primaryTabId: string;
@@ -41,6 +45,7 @@ export interface Session {
   cwd: string;
   gottyPort: number | null;
   position: number;
+  kind: SessionKind;
   // null = open; unix timestamp = soft-closed (hidden from sidebar, viewable in
   // the closed-sessions list, notes + AI history preserved).
   closedAt: number | null;
@@ -99,7 +104,7 @@ export type ServerMessage =
 export type ClientMessage =
   // `id` is optional: when the client supplies one it can focus the new session
   // immediately (before the broadcast round-trips); otherwise the server mints it.
-  | { type: "session:create"; primaryTabId: string; groupId?: string; label: string; id?: string }
+  | { type: "session:create"; primaryTabId: string; groupId?: string; label: string; id?: string; kind?: SessionKind }
   | { type: "session:close"; sessionId: string }
   | { type: "session:reopen"; sessionId: string }
   | { type: "session:purge"; sessionId: string }

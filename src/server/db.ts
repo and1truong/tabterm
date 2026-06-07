@@ -9,6 +9,7 @@ import type {
   Note,
   PrimaryTab,
   Session,
+  SessionKind,
 } from "../shared/types.ts";
 
 mkdirSync("data", { recursive: true });
@@ -43,6 +44,7 @@ db.exec(`
     cwd TEXT NOT NULL DEFAULT '~',
     gotty_port INTEGER,
     position INTEGER NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'shell',
     closed_at INTEGER
   );
 
@@ -73,6 +75,9 @@ const sessionCols = db
   .map((c) => c.name);
 if (!sessionCols.includes("closed_at")) {
   db.exec("ALTER TABLE sessions ADD COLUMN closed_at INTEGER");
+}
+if (!sessionCols.includes("kind")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'shell'");
 }
 
 // Add primary_tabs.cwd to pre-existing databases (empty string = "$HOME").
@@ -121,7 +126,8 @@ interface GroupRow {
 }
 interface SessionRow {
   id: string; primary_tab_id: string; group_id: string | null; label: string;
-  cwd: string; gotty_port: number | null; position: number; closed_at: number | null;
+  cwd: string; gotty_port: number | null; position: number; kind: string;
+  closed_at: number | null;
 }
 interface OrderRow { primary_tab_id: string; order_json: string }
 interface NoteRow {
@@ -152,6 +158,7 @@ const toSession = (r: SessionRow): Session => ({
   cwd: r.cwd,
   gottyPort: r.gotty_port,
   position: r.position,
+  kind: (r.kind === "claude" ? "claude" : "shell") as SessionKind,
   closedAt: r.closed_at,
 });
 const toNote = (r: NoteRow): Note => ({
@@ -180,7 +187,7 @@ const q = {
   toggleGroup: db.query("UPDATE groups SET is_open = 1 - is_open WHERE id = ?"),
 
   insertSession: db.query(
-    "INSERT INTO sessions (id, primary_tab_id, group_id, label, cwd, gotty_port, position) VALUES (?, ?, ?, ?, ?, NULL, ?)",
+    "INSERT INTO sessions (id, primary_tab_id, group_id, label, cwd, gotty_port, position, kind) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
   ),
   getSession: db.query<SessionRow, [string]>("SELECT * FROM sessions WHERE id = ?"),
   setSessionPort: db.query("UPDATE sessions SET gotty_port = ? WHERE id = ?"),
@@ -366,13 +373,14 @@ export function createSession(
   groupId: string | undefined,
   label: string,
   id: string = randomUUID(),
+  kind: SessionKind = "shell",
 ): { session: Session; order: string[] | null } {
   const position = (q.maxSessionPos.get(primaryTabId)?.p ?? -1) + 1;
   // New sessions inherit the workspace's default cwd. Legacy tabs without a cwd
   // column default to "" — gotty.ts treats that as "start in $HOME".
   const parent = q.getPrimaryTab.get(primaryTabId);
   const cwd = parent?.cwd ?? "";
-  q.insertSession.run(id, primaryTabId, groupId ?? null, label, cwd, position);
+  q.insertSession.run(id, primaryTabId, groupId ?? null, label, cwd, position, kind);
   // Ungrouped sessions live in the flat sidebar order; grouped sessions are
   // rendered as children of their group, ordered by `position`.
   let order: string[] | null = null;
@@ -537,7 +545,14 @@ export function addAiTurn(sessionId: string, role: AiMessage["role"], content: s
   q.insertAiTurn.run(sessionId, role, content);
 }
 
-export function sessionMeta(sessionId: string): { label: string; cwd: string } | null {
+export function sessionMeta(
+  sessionId: string,
+): { label: string; cwd: string; kind: SessionKind } | null {
   const r = q.getSession.get(sessionId);
-  return r ? { label: r.label, cwd: r.cwd } : null;
+  if (!r) return null;
+  return {
+    label: r.label,
+    cwd: r.cwd,
+    kind: (r.kind === "claude" ? "claude" : "shell") as SessionKind,
+  };
 }

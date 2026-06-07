@@ -34,3 +34,18 @@ PS2='> '
 PS4='+ '
 }
 proml
+
+# ---------------------
+# Optional startup command (set by tabterm for "claude" sessions). The marker
+# file lets us run the command plain on first launch and with --continue on
+# subsequent ones, so closing/reopening the browser tab resumes the conversation.
+# When the command exits the user falls back to interactive bash.
+# ---------------------
+if [ -n "$STARTUP_COMMAND" ]; then
+  if [ -n "$STARTUP_MARKER" ] && [ -f "$STARTUP_MARKER" ]; then
+    eval "$STARTUP_COMMAND --continue"
+  else
+    [ -n "$STARTUP_MARKER" ] && { mkdir -p "$(dirname "$STARTUP_MARKER")"; touch "$STARTUP_MARKER"; }
+    eval "$STARTUP_COMMAND"
+  fi
+fi

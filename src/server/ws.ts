@@ -72,7 +72,13 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       break;
     }
     case "session:create": {
-      const { session, order } = createSession(msg.primaryTabId, msg.groupId, msg.label, msg.id);
+      const { session, order } = createSession(
+        msg.primaryTabId,
+        msg.groupId,
+        msg.label,
+        msg.id,
+        msg.kind ?? "shell",
+      );
       void ensure(session.id); // spawn the session's GoTTY shell
       broadcast(setPatch("session", session));
       if (order) broadcast(setPatch("order", { primaryTabId: msg.primaryTabId, order }));

@@ -1,7 +1,7 @@
 import { spawn, type Subprocess } from "bun";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { allSessionIds, sessionMeta, setSessionPort } from "./db.ts";
 
 // One GoTTY process per session. GoTTY itself forks a fresh shell for EACH
@@ -16,6 +16,14 @@ const ROOT = import.meta.dir.startsWith("/$bunfs/")
 const GOTTY_BIN = join(ROOT, "bin/gotty");
 const BASE_PORT = Number(process.env.GOTTY_BASE_PORT ?? 4001);
 const BUNDLED_INIT = join(ROOT, "src/server/session-init.bash");
+// The command to launch for "claude" sessions. Configurable per user/install
+// since the binary may live at e.g. ~/bin/opus instead of plain "claude".
+const CLAUDE_COMMAND = process.env.CLAUDE_COMMAND || "claude";
+// Per-session marker dir. Presence of a session's marker file means claude has
+// been launched at least once in that session — subsequent spawns use
+// `--continue` so the conversation resumes across browser-tab close, sidebar
+// reopen, and server restart.
+const MARKER_DIR = resolve("data/sessions");
 
 // The shell command GoTTY forks for each session. By default we launch bash with
 // our prompt rcfile (which sources ~/.bashrc first). SESSION_INIT can point at a
@@ -67,6 +75,18 @@ async function waitForPort(port: number, timeoutMs = 3000): Promise<boolean> {
   return false;
 }
 
+// Build the env added on top of process.env when spawning a session's gotty
+// proc. For "claude" kind we inject STARTUP_COMMAND + STARTUP_MARKER which
+// session-init.bash reads to launch claude (with --continue on respawn).
+function sessionEnv(sessionId: string, kind: "shell" | "claude"): Record<string, string> {
+  if (kind !== "claude") return {};
+  mkdirSync(MARKER_DIR, { recursive: true });
+  return {
+    STARTUP_COMMAND: CLAUDE_COMMAND,
+    STARTUP_MARKER: join(MARKER_DIR, `${sessionId}.claude-started`),
+  };
+}
+
 // Spawn a GoTTY process for a session (idempotent). Returns its port.
 export async function ensure(sessionId: string): Promise<number> {
   const existing = procs.get(sessionId);
@@ -79,6 +99,7 @@ export async function ensure(sessionId: string): Promise<number> {
   if (meta?.cwd && !cwd) {
     console.warn(`[gotty] session ${sessionId} cwd "${meta.cwd}" not found, falling back`);
   }
+  const extraEnv = sessionEnv(sessionId, meta?.kind ?? "shell");
   const proc = spawn(
     [
       GOTTY_BIN,
@@ -88,7 +109,12 @@ export async function ensure(sessionId: string): Promise<number> {
       "--ws-origin", ".*",
       ...cmd,
     ],
-    { stdout: "ignore", stderr: "ignore", ...(cwd ? { cwd } : {}) },
+    {
+      stdout: "ignore",
+      stderr: "ignore",
+      ...(cwd ? { cwd } : {}),
+      env: { ...process.env, ...extraEnv } as Record<string, string>,
+    },
   );
   procs.set(sessionId, { proc, port });
   setSessionPort(sessionId, port);
