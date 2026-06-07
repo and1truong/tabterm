@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { loadState } from "./db.ts";
 
 // Minimal REST surface for v0.1. The app's live data flows over the WS;
@@ -54,4 +55,29 @@ function handleFsLs(url: URL): Response {
 
   const parent = path === "/" ? null : dirname(path);
   return Response.json({ path, parent, home: homedir(), entries });
+}
+
+// Browsers don't expose the original filesystem path of a dropped file. When
+// the drop carries no `text/uri-list`, the client uploads the File blobs here
+// and we hand back absolute paths the terminal can splice in like typed input.
+export async function handleUpload(req: Request): Promise<Response> {
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return Response.json({ error: "invalid form" }, { status: 400 });
+  }
+  const files = form.getAll("file").filter((v): v is File => v instanceof File);
+  if (!files.length) return Response.json({ error: "no files" }, { status: 400 });
+
+  const dir = join(tmpdir(), "tabterm-uploads", crypto.randomUUID());
+  await mkdir(dir, { recursive: true });
+  const paths: string[] = [];
+  for (const f of files) {
+    const safe = f.name.replace(/[/\\]/g, "_") || "upload";
+    const p = join(dir, safe);
+    await writeFile(p, new Uint8Array(await f.arrayBuffer()));
+    paths.push(p);
+  }
+  return Response.json({ paths });
 }

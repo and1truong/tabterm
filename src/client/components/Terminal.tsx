@@ -131,24 +131,34 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     const onResize = term.onResize(sendResize);
 
     const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-    const pathsFromDrop = (dt: DataTransfer): string[] => {
+    // text/uri-list carries the real filesystem path when the OS/browser is
+    // willing to share it (Finder→Chrome on a file:// origin, etc). Most http
+    // origins get an empty string for security — then we upload the File blobs
+    // to /api/upload and the server hands back absolute paths under a temp dir.
+    const pathsFromUriList = (dt: DataTransfer): string[] => {
       const uriList = dt.getData("text/uri-list");
-      if (uriList) {
-        const paths: string[] = [];
-        for (const line of uriList.split(/\r?\n/)) {
-          const t = line.trim();
-          if (!t || t.startsWith("#")) continue;
-          if (t.startsWith("file://")) {
-            try {
-              paths.push(decodeURIComponent(new URL(t).pathname));
-            } catch {
-              // skip malformed
-            }
+      if (!uriList) return [];
+      const paths: string[] = [];
+      for (const line of uriList.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t || t.startsWith("#")) continue;
+        if (t.startsWith("file://")) {
+          try {
+            paths.push(decodeURIComponent(new URL(t).pathname));
+          } catch {
+            // skip malformed
           }
         }
-        if (paths.length) return paths;
       }
-      return Array.from(dt.files).map((f) => f.name);
+      return paths;
+    };
+    const uploadFiles = async (files: File[]): Promise<string[]> => {
+      const fd = new FormData();
+      for (const f of files) fd.append("file", f);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) return files.map((f) => f.name);
+      const data = (await res.json()) as { paths?: string[] };
+      return data.paths?.length ? data.paths : files.map((f) => f.name);
     };
     const onDragOver = (e: DragEvent) => {
       if (e.dataTransfer?.types.includes("Files")) {
@@ -156,10 +166,13 @@ export function Terminal({ sessionId }: { sessionId: string }) {
         e.dataTransfer.dropEffect = "copy";
       }
     };
-    const onDrop = (e: DragEvent) => {
+    const onDrop = async (e: DragEvent) => {
       if (!e.dataTransfer?.types.includes("Files")) return;
       e.preventDefault();
-      const paths = pathsFromDrop(e.dataTransfer);
+      // Snapshot files synchronously — dt.files becomes unreliable after await.
+      const files = Array.from(e.dataTransfer.files);
+      const fromUri = pathsFromUriList(e.dataTransfer);
+      const paths = fromUri.length ? fromUri : files.length ? await uploadFiles(files) : [];
       if (!paths.length) return;
       const text = paths.map(shellQuote).join(" ");
       if (ws?.readyState === WebSocket.OPEN) ws.send(enc.encode(text));

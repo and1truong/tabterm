@@ -6,7 +6,7 @@ import { seedIfEmpty } from "./db.ts";
 import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
 import { killAll, respawnAll, startHealthMonitor } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
-import { handleApi } from "./routes.ts";
+import { handleApi, handleUpload } from "./routes.ts";
 import * as appws from "./ws.ts";
 
 const PORT = config.port;
@@ -69,6 +69,7 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/ai/chat" && req.method === "POST") return ai.handleChat(req);
     if (url.pathname === "/api/ai/history") return ai.handleHistory(url);
+    if (url.pathname === "/api/upload" && req.method === "POST") return handleUpload(req);
 
     const api = url.pathname.startsWith("/api/") ? handleApi(url) : null;
     if (api) return api;
