@@ -1,5 +1,6 @@
 {
   "dbPath": "./data/state.db",
   "port": 3000,
-  "gottyBasePort": 4001
+  "gottyBasePort": 4001,
+  "claudeCommand": "claude"
 }

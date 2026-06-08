@@ -100,7 +100,7 @@ bash / zsh (real shell)
 ```
 
 - On session create, Bun spawns a GoTTY process: `gotty --port <dynamic> --permit-write bash`
-- GoTTY port is allocated dynamically (start from `GOTTY_BASE_PORT`, increment per session).
+- GoTTY port is allocated dynamically (start from `gottyBasePort` in config, increment per session).
 - Bun proxies the GoTTY WS connection at `/gotty/ws/:sessionId` — browser never connects to GoTTY directly.
 - GoTTY process is tracked in a server-side `Map<sessionId, GoTTYProcess>`.
 - On session delete, the corresponding GoTTY process is killed and its port freed.
@@ -250,7 +250,7 @@ tabterm/
 ├── vite.config.ts
 ├── tsconfig.json
 ├── package.json
-└── .env                   # PORT, GOTTY_BASE_PORT
+└── config.sample.json     # dev config (port, gottyBasePort, …)
 ```
 
 ---

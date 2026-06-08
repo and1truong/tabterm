@@ -238,7 +238,7 @@ export function Sidebar() {
         <button
           onClick={() => addSession(undefined, "claude")}
           className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
-          title="Launch the configured claude command (CLAUDE_COMMAND, default 'claude')"
+          title="Launch the configured claude command (claudeCommand in config, default 'claude')"
         >
           <Sparkles size={14} className="text-[var(--orange)]" /> Claude session
         </button>
