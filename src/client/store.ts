@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type {
-  AiMessage,
   AppState,
   Group,
   Note,
@@ -22,8 +21,6 @@ interface StoreState extends AppState {
   // Set when this device creates a session; cleared once the matching session
   // patch arrives and focus is applied. Keeps focus creator-only.
   pendingFocusSessionId: string | null;
-  // Per-session AI history, loaded lazily over REST and kept live via WS.
-  aiHistory: Record<string, AiMessage[]>;
   theme: Theme;
   showNotes: boolean;
   showClosedSessions: boolean;
@@ -35,7 +32,6 @@ interface StoreState extends AppState {
   setActivePrimaryTab: (id: string) => void;
   setActiveSession: (id: string | null) => void;
   requestFocus: (id: string) => void;
-  setAiHistory: (sessionId: string, messages: AiMessage[]) => void;
   toggleTheme: () => void;
   toggleNotes: () => void;
   toggleClosedSessions: () => void;
@@ -63,7 +59,6 @@ export const useStore = create<StoreState>((set, get) => ({
   activeSessionId: null,
   lastSessionByTab: {},
   pendingFocusSessionId: null,
-  aiHistory: {},
   theme: getInitialTheme(),
   showNotes: true,
   showClosedSessions: false,
@@ -81,8 +76,6 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ activeSessionId: id, lastSessionByTab: next });
   },
   requestFocus: (id) => set({ pendingFocusSessionId: id }),
-  setAiHistory: (sessionId, messages) =>
-    set({ aiHistory: { ...get().aiHistory, [sessionId]: messages } }),
   toggleTheme: () => {
     const theme = get().theme === "dark" ? "light" : "dark";
     applyTheme(theme);
@@ -94,16 +87,6 @@ export const useStore = create<StoreState>((set, get) => ({
   setTermTheme: (termTheme) => set({ termTheme }),
 
   applyServerMessage: (msg) => {
-    if (msg.type === "ai") {
-      // Only append if this device has loaded that session's history; otherwise
-      // it will fetch the full history when the panel opens.
-      const cur = get().aiHistory[msg.sessionId];
-      if (cur !== undefined) {
-        set({ aiHistory: { ...get().aiHistory, [msg.sessionId]: [...cur, ...msg.messages] } });
-      }
-      return;
-    }
-
     if (msg.type === "init") {
       const { state } = msg;
       const firstTab = Object.values(state.primaryTabs)

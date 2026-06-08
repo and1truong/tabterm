@@ -11,7 +11,6 @@ interface FileConfig {
   gottyBin?: string;
   gottyBasePort?: number;
   sessionInit?: string;
-  anthropicApiKey?: string;
   // Command to launch for "claude" sessions. Defaults to "claude"; point at the
   // absolute path of your binary if it lives outside $PATH (e.g. "~/bin/opus").
   claudeCommand?: string;
@@ -61,7 +60,6 @@ export const config = {
   gottyBin: envStr("GOTTY_BIN") ?? (file.gottyBin ? expandHome(file.gottyBin) : undefined),
   gottyBasePort: envNum("GOTTY_BASE_PORT") ?? file.gottyBasePort ?? 4001,
   sessionInit: envStr("SESSION_INIT") ?? file.sessionInit,
-  anthropicApiKey: envStr("ANTHROPIC_API_KEY") ?? file.anthropicApiKey,
   claudeCommand:
     envStr("CLAUDE_COMMAND") ?? (file.claudeCommand ? expandHome(file.claudeCommand) : "claude"),
 };

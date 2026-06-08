@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { registerScrollback } from "../terminals.ts";
 import { useStore } from "../store.ts";
 import { TERM_THEMES, type TermPreset } from "../termThemes.ts";
 
@@ -181,13 +180,6 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     host.addEventListener("dragover", onDragOver);
     host.addEventListener("drop", onDrop);
 
-    const unregister = registerScrollback(sessionId, () => {
-      const buf = term.buffer.active;
-      const lines: string[] = [];
-      for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
-      return lines.filter((l) => l.trim() !== "");
-    });
-
     const ro = new ResizeObserver(() => {
       try {
         fit.fit();
@@ -203,7 +195,6 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       closed = true;
       clearTimeout(reconnectTimer);
       ro.disconnect();
-      unregister();
       host.removeEventListener("dragover", onDragOver);
       host.removeEventListener("drop", onDrop);
       onData.dispose();

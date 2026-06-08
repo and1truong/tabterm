@@ -1,16 +1,16 @@
-# PRD: TabTerm — Tabbed Terminal Workspace with AI Assistant
+# PRD: TabTerm — Tabbed Terminal Workspace
 
 **Version**: 0.2  
 **Status**: Draft  
 **Author**: Engineering  
 **Date**: 2026-06-02  
-**Changelog**: v0.2 — replaced simulated command set with real PTY via GoTTY subprocess (Option 4)
+**Changelog**: v0.2 — replaced simulated command set with real PTY via GoTTY subprocess (Option 4); removed the embedded AI assistant panel and Anthropic integration
 
 ---
 
 ## Problem Statement
 
-Developers managing multiple projects, servers, or contexts must juggle multiple terminal windows, scattered notes, and disconnected AI chat sessions. There is no unified tool that combines grouped terminal sessions, contextual note-taking, and an embedded AI assistant — all persisted, cross-device, and shareable within a team or personal LAN. The cost of not solving this is constant context-switching overhead and lost session state across reboots or device changes.
+Developers managing multiple projects, servers, or contexts must juggle multiple terminal windows and scattered notes. There is no unified tool that combines grouped terminal sessions and contextual note-taking — all persisted, cross-device, and shareable within a team or personal LAN. The cost of not solving this is constant context-switching overhead and lost session state across reboots or device changes.
 
 ---
 
@@ -18,9 +18,8 @@ Developers managing multiple projects, servers, or contexts must juggle multiple
 
 1. A developer can open any device on the LAN and get a real, interactive shell — not a simulated command runner.
 2. Session groups reduce navigation time — finding the right terminal session takes under 3 seconds.
-3. The embedded AI assistant has enough context (scrollback buffer, cwd, group) to give useful answers without copy-pasting.
-4. The server is runnable as a single `bun start` command with zero external services required (GoTTY spawned as a managed subprocess).
-5. Notes and AI conversation history survive server restarts.
+3. The server is runnable as a single `bun start` command with zero external services required (GoTTY spawned as a managed subprocess).
+4. Notes survive server restarts.
 
 ---
 
@@ -29,7 +28,6 @@ Developers managing multiple projects, servers, or contexts must juggle multiple
 - **Not a multi-user auth system**: No login, no user accounts. LAN-trust model only. Adding auth is a separate initiative.
 - **Not a cloud SaaS**: Designed for local/LAN deployment. No cloud sync, no remote DB, no CDN.
 - **Not a mobile-native app**: Responsive web is the target; no React Native or Capacitor wrapper in v1.
-- **Not an AI agent**: The assistant answers questions about the session; it does not execute commands autonomously.
 - **Not a GoTTY replacement**: GoTTY is used as a PTY subprocess only. Its own UI is never exposed directly to users; it is fully proxied and embedded.
 
 ---
@@ -39,10 +37,9 @@ Developers managing multiple projects, servers, or contexts must juggle multiple
 ### Primary Persona: Solo Developer (personal workstation + laptop)
 
 - As a developer, I want a real shell in the browser so that I can run any command (`vim`, `ssh`, `htop`, `git`) without limitation.
-- As a developer, I want my terminal sessions, notes, and AI history to persist across reboots so that I don't lose context when I restart my machine.
+- As a developer, I want my terminal sessions and notes to persist across reboots so that I don't lose context when I restart my machine.
 - As a developer, I want to group related sessions (e.g. "backend", "infra") under a colored label so that I can navigate between contexts quickly.
 - As a developer, I want to collapse a group I'm not currently working on so that the sidebar stays clean.
-- As a developer, I want to ask the AI assistant questions about my current session so that I don't need to switch to a separate chat window.
 - As a developer, I want per-session notes so that I can capture observations, commands to remember, or TODO items next to the relevant terminal.
 
 ### Secondary Persona: Developer on multiple devices (desktop + laptop)
@@ -64,11 +61,11 @@ Developers managing multiple projects, servers, or contexts must juggle multiple
 
 **2. SQLite persistence via `bun:sqlite`**
 - WAL mode enabled.
-- Schema covers: `primary_tabs`, `sessions`, `groups`, `sidebar_order`, `notes`, `ai_history`.
+- Schema covers: `primary_tabs`, `sessions`, `groups`, `sidebar_order`, `notes`.
 - Terminal scrollback is NOT stored in SQLite — GoTTY owns the PTY buffer. See Open Questions.
-- All app state (layout, groups, notes, AI history) is loaded from SQLite on server start.
+- All app state (layout, groups, notes) is loaded from SQLite on server start.
 - Acceptance:
-  - Given a server restart, when the client reconnects, all sessions, groups, notes, and AI history are fully restored.
+  - Given a server restart, when the client reconnects, all sessions, groups, and notes are fully restored.
 
 **3. React SPA with Vite + Bun**
 - Vite dev server proxies `/api`, `/ws`, and `/gotty/*` to the Bun backend during development.
@@ -125,30 +122,13 @@ Acceptance:
   - Given the browser window is resized, the PTY reflows correctly within 200ms.
   - Given the WS drops, xterm.js reconnects without user intervention.
 
-**7. AI context: scrollback capture**
-- Since PTY output is not stored in SQLite, the AI assistant captures scrollback from `xterm.js` buffer at query time: `terminal.buffer.active` lines, last 100 rows.
-- Scrollback is sent as part of the AI request payload to the Bun server, never stored.
-- System prompt: session label, cwd (tracked client-side from shell prompt parsing or user input), last 100 scrollback lines.
-- Acceptance:
-  - Given the user ran several commands, when they ask the assistant a question, the assistant response reflects recent terminal output.
-
-**8. Sidebar: Notes panel**
+**7. Sidebar: Notes panel**
 - Per-session notes, multiple notes per session.
 - Each note is a free-text textarea, auto-saved on `input` event with 300ms debounce.
 - Acceptance:
   - Given a note is typed, when the user closes and reopens the browser, the note content is present.
 
-**9. Sidebar: Assistant panel**
-- Calls Anthropic API (`claude-sonnet-4-20250514`) via Bun server proxy.
-- System prompt includes session label, cwd, and captured scrollback (see Req 7).
-- Full conversation history per session, persisted in SQLite.
-- `Enter` sends, `Shift+Enter` for newlines.
-- `ANTHROPIC_API_KEY` in server env, never sent to client.
-- Acceptance:
-  - Given a conversation with 5 turns, when the user reopens the browser, all 5 turns are visible.
-  - Given no API key is set, the assistant panel shows a clear error state.
-
-**10. State broadcast via WebSocket**
+**8. State broadcast via WebSocket**
 - Server maintains a set of active app-level WS connections (separate from GoTTY proxy WS).
 - On any app mutation, server persists first, then broadcasts to all other connected clients.
 - Client merges incoming diff into Zustand store without full re-render.
@@ -216,7 +196,6 @@ type ClientMessage =
 │  - HTTP: serve static SPA + REST /api/*          │
 │  - App WS: broadcast mutations to all clients   │
 │  - PTY WS proxy: /gotty/ws/:id → GoTTY process  │
-│  - AI proxy: POST /api/ai/chat → Anthropic       │
 │  - Process manager: spawn/kill GoTTY per session │
 └──────┬────────────────────┬────────────────────┬─┘
        │ bun:sqlite         │ spawn              │ spawn
@@ -239,7 +218,6 @@ type ClientMessage =
 | State (client) | Zustand | Lightweight store |
 | State (server) | `bun:sqlite` WAL | App state only; PTY buffer not persisted |
 | Styling | Tailwind CSS v4 | Vite plugin |
-| AI | Anthropic SDK | Server-side proxy, key in env |
 | Dev proxy | Vite `server.proxy` | `/api` + `/ws` + `/gotty` → Bun port |
 
 ---
@@ -256,8 +234,7 @@ tabterm/
 │   │   ├── db.ts          # bun:sqlite schema + queries
 │   │   ├── routes.ts      # REST handlers
 │   │   ├── ws.ts          # App WS pool + broadcast
-│   │   ├── gotty.ts       # GoTTY process manager (spawn/kill/proxy)
-│   │   └── ai.ts          # Anthropic proxy
+│   │   └── gotty.ts       # GoTTY process manager (spawn/kill/proxy)
 │   └── client/
 │       ├── main.tsx
 │       ├── store.ts       # Zustand
@@ -267,14 +244,13 @@ tabterm/
 │       │   ├── TitleBar.tsx
 │       │   ├── Sidebar.tsx
 │       │   ├── Terminal.tsx       # xterm.js + GoTTY WS
-│       │   ├── NotesPanel.tsx
-│       │   └── AssistantPanel.tsx
+│       │   └── NotesPanel.tsx
 │       └── types.ts
 ├── data/                  # state.db (gitignored)
 ├── vite.config.ts
 ├── tsconfig.json
 ├── package.json
-└── .env                   # ANTHROPIC_API_KEY, PORT, GOTTY_BASE_PORT
+└── .env                   # PORT, GOTTY_BASE_PORT
 ```
 
 ---
@@ -314,14 +290,6 @@ CREATE TABLE notes (
   position INTEGER NOT NULL,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
-
-CREATE TABLE ai_history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id TEXT NOT NULL,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
 ```
 
 Note: `session_history` table from v0.1 is removed — PTY output is not stored in SQLite.
@@ -337,8 +305,7 @@ Note: `session_history` table from v0.1 is removed — PTY output is not stored 
 | 3 | GoTTY supports `--permit-write` flag to allow input. Without it the terminal is read-only. Should write be always on, or togglable per session? | Engineering | Yes |
 | 4 | cwd tracking: rely on user manually updating label, or parse `$PROMPT_COMMAND` / `$PS1`? Parsing is fragile across shells. | Engineering | No |
 | 5 | Max concurrent GoTTY processes: should there be a hard cap (e.g. 20) to prevent resource exhaustion? | Engineering | No |
-| 6 | Should AI conversation history have a max length per session (e.g. last 100 turns) to cap DB size? | Engineering | No |
-| 7 | When two clients view the same session simultaneously, both get the same PTY stream — is that the intended behavior (shared terminal), or should each client get its own shell? | Product | Yes |
+| 6 | When two clients view the same session simultaneously, both get the same PTY stream — is that the intended behavior (shared terminal), or should each client get its own shell? | Product | Yes |
 
 ---
 
@@ -352,7 +319,6 @@ Note: `session_history` table from v0.1 is removed — PTY output is not stored 
 
 ### Lagging (measure over first month)
 - Daily usage across at least 2 devices without manually re-entering session context.
-- AI assistant used at least once per day (indicates contextual value over copy-paste to external chat).
 
 ---
 
@@ -363,7 +329,7 @@ Note: `session_history` table from v0.1 is removed — PTY output is not stored 
 | v0.1 | Bun server + SQLite schema + WS scaffold + React shell | Week 1 |
 | v0.2 | GoTTY process manager + xterm.js integration + PTY proxy | Week 2 |
 | v0.3 | Sidebar (groups + sessions) + multi-client WS sync | Week 3 |
-| v0.4 | Notes panel + Assistant panel + scrollback capture + Anthropic | Week 4 |
+| v0.4 | Notes panel | Week 4 |
 | v0.5 | Polish, error states, reconnect UX, GoTTY health check | Week 5 |
 | v1.0 | Stable, dog-fooded daily, P1 items triaged | Week 6 |
 

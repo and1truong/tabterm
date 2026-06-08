@@ -60,7 +60,6 @@ export interface Note {
 
 // Full application state sent on connect and held in the client store.
 // `order` maps a primaryTabId to its flat sidebar order of `groupId | sessionId`.
-// AI history is NOT in here — it's fetched per session over REST (see ai.ts).
 export interface AppState {
   primaryTabs: Record<string, PrimaryTab>;
   groups: Record<string, Group>;
@@ -71,34 +70,11 @@ export interface AppState {
 
 export type Entity = "primaryTab" | "group" | "session" | "order" | "note";
 
-// AI assistant (REST proxy, not the app WS).
-export interface AiMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface AiChatRequest {
-  sessionId: string;
-  message: string;
-  scrollback: string[]; // captured from xterm at query time, never stored
-}
-
-export interface AiChatResponse {
-  reply: string;
-}
-
-export interface AiErrorResponse {
-  error: string;
-}
-
 // Server → Client
 export type ServerMessage =
   | { type: "init"; state: AppState }
   | { type: "patch"; entity: Entity; op: "set"; data: unknown }
-  | { type: "patch"; entity: Entity; op: "delete"; id: string }
-  // New AI turns to append to a session's history (broadcast so other devices
-  // see the conversation live). AI history itself is not in AppState.
-  | { type: "ai"; sessionId: string; messages: AiMessage[] };
+  | { type: "patch"; entity: Entity; op: "delete"; id: string };
 
 // Client → Server
 export type ClientMessage =

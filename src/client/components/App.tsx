@@ -34,7 +34,7 @@ export function App() {
                 <RotateCcw size={14} /> Reopen subtab
               </button>
               <div className="text-xs text-[var(--faint)]">
-                Notes and AI assistant remain available on the right.
+                Notes remain available on the right.
               </div>
             </div>
           ) : (
