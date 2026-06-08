@@ -3,7 +3,6 @@ import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import type {
-  AiMessage,
   AppState,
   Group,
   GroupColor,
@@ -61,13 +60,6 @@ db.exec(`
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
-  CREATE TABLE IF NOT EXISTS ai_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  );
 `);
 
 // Add sessions.closed_at to pre-existing databases (NULL = open, unix ts = closed).
@@ -135,7 +127,6 @@ interface OrderRow { primary_tab_id: string; order_json: string }
 interface NoteRow {
   session_id: string; content: string; updated_at: number;
 }
-interface AiRow { role: string; content: string }
 
 const toPrimaryTab = (r: PrimaryTabRow): PrimaryTab => ({
   id: r.id,
@@ -212,13 +203,9 @@ const q = {
   deleteTabNotes: db.query(
     "DELETE FROM notes WHERE session_id IN (SELECT id FROM sessions WHERE primary_tab_id = ?)",
   ),
-  deleteTabAi: db.query(
-    "DELETE FROM ai_history WHERE session_id IN (SELECT id FROM sessions WHERE primary_tab_id = ?)",
-  ),
   renameGroup: db.query("UPDATE groups SET label = ? WHERE id = ?"),
   renameSession: db.query("UPDATE sessions SET label = ? WHERE id = ?"),
   deleteSessionNotes: db.query("DELETE FROM notes WHERE session_id = ?"),
-  deleteSessionAi: db.query("DELETE FROM ai_history WHERE session_id = ?"),
   maxGroupPos: db.query<{ p: number | null }, [string]>(
     "SELECT MAX(position) AS p FROM groups WHERE primary_tab_id = ?",
   ),
@@ -237,13 +224,6 @@ const q = {
   upsertNote: db.query(
     "INSERT INTO notes (session_id, content, updated_at) VALUES (?, ?, unixepoch()) " +
       "ON CONFLICT(session_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-  ),
-
-  aiHistory: db.query<AiRow, [string]>(
-    "SELECT role, content FROM ai_history WHERE session_id = ? ORDER BY id",
-  ),
-  insertAiTurn: db.query(
-    "INSERT INTO ai_history (session_id, role, content) VALUES (?, ?, ?)",
   ),
 };
 
@@ -334,14 +314,13 @@ export function reopenTab(
   return { tab: toPrimaryTab(q.getPrimaryTab.get(tabId)!), sessionIds };
 }
 
-// Permanent: drop the workspace row plus every group, session, note, AI turn,
-// and sidebar order belonging to it.
+// Permanent: drop the workspace row plus every group, session, note, and
+// sidebar order belonging to it.
 export function purgeTab(
   tabId: string,
 ): { sessionIds: string[] } | null {
   if (!q.getPrimaryTab.get(tabId)) return null;
   const sessionIds = q.tabSessionIds.all(tabId).map((r) => r.id);
-  q.deleteTabAi.run(tabId);
   q.deleteTabNotes.run(tabId);
   q.deleteTabSessions.run(tabId);
   q.deleteTabGroups.run(tabId);
@@ -442,7 +421,7 @@ export function reopenSession(
   };
 }
 
-// Permanent: drop the session row + its notes + its AI history.
+// Permanent: drop the session row + its notes.
 export function purgeSession(
   sessionId: string,
 ): { primaryTabId: string; order: string[] | null } | null {
@@ -450,7 +429,6 @@ export function purgeSession(
   if (!existing) return null;
   q.deleteSession.run(sessionId);
   q.deleteSessionNotes.run(sessionId);
-  q.deleteSessionAi.run(sessionId);
   let order: string[] | null = null;
   if (!existing.group_id) {
     const prev = readOrder(existing.primary_tab_id);
@@ -532,19 +510,6 @@ export function allSessionIds(): string[] {
 export function upsertNote(sessionId: string, content: string): Note {
   q.upsertNote.run(sessionId, content);
   return toNote(q.getNote.get(sessionId)!);
-}
-
-// ---- AI history --------------------------------------------------------------
-
-export function getAiHistory(sessionId: string): AiMessage[] {
-  return q.aiHistory.all(sessionId).map((r) => ({
-    role: r.role as AiMessage["role"],
-    content: r.content,
-  }));
-}
-
-export function addAiTurn(sessionId: string, role: AiMessage["role"], content: string): void {
-  q.insertAiTurn.run(sessionId, role, content);
 }
 
 export function sessionMeta(

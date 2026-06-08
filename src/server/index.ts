@@ -1,6 +1,5 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import { join } from "node:path";
-import * as ai from "./ai.ts";
 import { config } from "./config.ts";
 import { seedIfEmpty } from "./db.ts";
 import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
@@ -67,8 +66,6 @@ const server = Bun.serve({
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
-    if (url.pathname === "/api/ai/chat" && req.method === "POST") return ai.handleChat(req);
-    if (url.pathname === "/api/ai/history") return ai.handleHistory(url);
     if (url.pathname === "/api/upload" && req.method === "POST") return handleUpload(req);
 
     const api = url.pathname.startsWith("/api/") ? handleApi(url) : null;
