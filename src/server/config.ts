@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 // Prod (compiled binary or NODE_ENV=production) reads ~/.config/tabterm.json.
 // Dev reads config.sample.json from the repo root, so iterating locally never
-// touches the prod DB. Every field is optional; env vars still override.
+// touches the prod DB. Every field is optional and falls back to a default.
 interface FileConfig {
   dbPath?: string;
   port?: number;
@@ -43,23 +43,11 @@ function loadFile(): FileConfig {
 const file = loadFile();
 console.log(`[config] ${IS_PROD ? "prod" : "dev"} → ${CONFIG_PATH}`);
 
-function envStr(key: string): string | undefined {
-  const v = process.env[key];
-  return v && v.length > 0 ? v : undefined;
-}
-function envNum(key: string): number | undefined {
-  const v = process.env[key];
-  if (!v) return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
-
 export const config = {
   dbPath: expandHome(file.dbPath ?? "~/.config/tabterm.db"),
-  port: envNum("PORT") ?? file.port ?? 3000,
-  gottyBin: envStr("GOTTY_BIN") ?? (file.gottyBin ? expandHome(file.gottyBin) : undefined),
-  gottyBasePort: envNum("GOTTY_BASE_PORT") ?? file.gottyBasePort ?? 4001,
-  sessionInit: envStr("SESSION_INIT") ?? file.sessionInit,
-  claudeCommand:
-    envStr("CLAUDE_COMMAND") ?? (file.claudeCommand ? expandHome(file.claudeCommand) : "claude"),
+  port: file.port ?? 3000,
+  gottyBin: file.gottyBin ? expandHome(file.gottyBin) : undefined,
+  gottyBasePort: file.gottyBasePort ?? 4001,
+  sessionInit: file.sessionInit,
+  claudeCommand: file.claudeCommand ? expandHome(file.claudeCommand) : "claude",
 };
