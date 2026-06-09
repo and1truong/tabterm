@@ -5,7 +5,6 @@ import { sendMessage } from "../ws.ts";
 import { ClosedSessionsModal } from "./ClosedSessionsModal.tsx";
 import { ClosedTabsModal } from "./ClosedTabsModal.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
-import { Header } from "./Header.tsx";
 import { PrimaryTabs } from "./PrimaryTabs.tsx";
 import { RightPanel } from "./RightPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
@@ -33,7 +32,6 @@ export function App() {
 
   return (
     <div className="h-full flex flex-col bg-[var(--bg)]">
-      <Header />
       <PrimaryTabs />
       <div className="flex-1 flex min-h-0">
         <Sidebar />
