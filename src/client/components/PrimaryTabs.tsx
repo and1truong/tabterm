@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Archive, Compass, Folder, FolderArchive, Plus, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.ts";
+import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
 import { CwdPickerModal } from "./CwdPickerModal.tsx";
 import { EditableLabel } from "./EditableLabel.tsx";
@@ -69,7 +70,7 @@ export function PrimaryTabs() {
 
   const addTab = () => {
     const label = prompt("Workspace name?");
-    if (label) sendMessage({ type: "tab:create", id: crypto.randomUUID(), label });
+    if (label) sendMessage({ type: "tab:create", id: uuid(), label });
   };
 
   return (

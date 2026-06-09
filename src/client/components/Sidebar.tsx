@@ -4,6 +4,7 @@ import type { GroupColor, SessionKind } from "../../shared/types.ts";
 import { GROUP_COLORS } from "../../shared/types.ts";
 import { buildTree, intoGroup, toTop, type Tree } from "../layout.ts";
 import { useStore } from "../store.ts";
+import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
 import { EditableLabel } from "./EditableLabel.tsx";
 
@@ -66,7 +67,7 @@ export function Sidebar() {
   const addSession = (groupId?: string, kind: SessionKind = "shell") => {
     const count = Object.values(sessions).filter((s) => s.primaryTabId === tabId).length;
     const label = kind === "claude" ? `Claude ${count + 1}` : `Session ${count + 1}`;
-    const id = crypto.randomUUID();
+    const id = uuid();
     requestFocus(id);
     sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label, kind });
   };

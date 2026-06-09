@@ -3,6 +3,7 @@ import { Archive, Layers, Plus, Search, Sparkles, TerminalSquare } from "lucide-
 import { useShallow } from "zustand/react/shallow";
 import type { PrimaryTab, Session, SessionKind } from "../../shared/types.ts";
 import { useStore } from "../store.ts";
+import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
 
 type Entry =
@@ -56,7 +57,7 @@ export function CommandPalette() {
   const addSession = (kind: SessionKind) => {
     if (!activePrimaryTabId) return;
     const label = kind === "claude" ? `Claude ${sessionCountInActive + 1}` : `Session ${sessionCountInActive + 1}`;
-    const id = crypto.randomUUID();
+    const id = uuid();
     requestFocus(id);
     sendMessage({ type: "session:create", id, primaryTabId: activePrimaryTabId, label, kind });
   };
