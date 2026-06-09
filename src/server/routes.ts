@@ -2,7 +2,8 @@ import { readdirSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { loadState } from "./db.ts";
+import { getSession, loadState } from "./db.ts";
+import { setStatus } from "./status.ts";
 
 // Minimal REST surface for v0.1. The app's live data flows over the WS;
 // these endpoints are for health checks and non-WS state inspection.
@@ -55,6 +56,27 @@ function handleFsLs(url: URL): Response {
 
   const parent = path === "/" ? null : dirname(path);
   return Response.json({ path, parent, home: homedir(), entries });
+}
+
+// Update a session's running/idle indicator. Posted by claude-code hooks
+// (UserPromptSubmit → running, Stop → idle) and available to anything else
+// that wants to flag activity from inside a session.
+export async function handleStatusUpdate(req: Request, sessionId: string): Promise<Response> {
+  if (!getSession(sessionId)) {
+    return Response.json({ error: "unknown session" }, { status: 404 });
+  }
+  let body: { status?: string };
+  try {
+    body = (await req.json()) as { status?: string };
+  } catch {
+    return Response.json({ error: "invalid json" }, { status: 400 });
+  }
+  const next = body.status;
+  if (next !== "running" && next !== "idle") {
+    return Response.json({ error: "status must be 'running' or 'idle'" }, { status: 400 });
+  }
+  setStatus(sessionId, next);
+  return new Response(null, { status: 204 });
 }
 
 // Browsers don't expose the original filesystem path of a dropped file. When

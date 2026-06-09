@@ -138,7 +138,11 @@ export function Sidebar() {
         {dot && (
           <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dot }} />
         )}
-        <EditableLabel value={s.label} onCommit={(v) => rename("session", id, v)} className="truncate flex-1" />
+        <EditableLabel
+          value={s.label}
+          onCommit={(v) => rename("session", id, v)}
+          className={`truncate flex-1 ${s.status === "running" ? "" : "italic opacity-60"}`}
+        />
         <button
           className="opacity-0 group-hover:opacity-100 text-[var(--faint)] hover:text-red-400"
           onClick={(e) => {

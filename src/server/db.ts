@@ -512,6 +512,11 @@ export function upsertNote(sessionId: string, content: string): Note {
   return toNote(q.getNote.get(sessionId)!);
 }
 
+export function getSession(sessionId: string): Session | null {
+  const r = q.getSession.get(sessionId);
+  return r ? toSession(r) : null;
+}
+
 export function sessionMeta(
   sessionId: string,
 ): { label: string; cwd: string; kind: SessionKind } | null {

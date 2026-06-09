@@ -1,11 +1,12 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import { join } from "node:path";
+import { ensureClaudeHooks } from "./claude-hooks.ts";
 import { config } from "./config.ts";
 import { seedIfEmpty } from "./db.ts";
 import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
 import { killAll, reapOrphans, respawnAll, startHealthMonitor } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
-import { handleApi, handleUpload } from "./routes.ts";
+import { handleApi, handleStatusUpdate, handleUpload } from "./routes.ts";
 import * as appws from "./ws.ts";
 
 const PORT = config.port;
@@ -22,6 +23,7 @@ type AppData = { kind: "app" };
 type SocketData = AppData | proxy.ProxyData;
 
 seedIfEmpty();
+ensureClaudeHooks(); // inject UserPromptSubmit + Stop hooks into ~/.claude/settings.json
 reapOrphans(); // kill any gotty children left behind by a previous crash
 await respawnAll(); // auto-respawn GoTTY for persisted sessions on restart
 startHealthMonitor(); // ping GoTTY processes every 30s, respawn if unresponsive
@@ -68,6 +70,10 @@ const server = Bun.serve({
     }
 
     if (url.pathname === "/api/upload" && req.method === "POST") return handleUpload(req);
+
+    // POST /api/sessions/:id/status — runtime liveness signal (claude hooks etc).
+    const statusMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/status$/);
+    if (statusMatch && req.method === "POST") return handleStatusUpdate(req, statusMatch[1]);
 
     const api = url.pathname.startsWith("/api/") ? handleApi(url) : null;
     if (api) return api;

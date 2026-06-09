@@ -50,13 +50,20 @@ async function shellCommand(): Promise<string[]> {
 // browser-tab close, sidebar reopen, and server restart.
 const MARKER_DIR = join(homedir(), ".cache/tabterm/sessions");
 
-// Env injected on top of process.env for a "claude" session. session-init.bash
-// reads STARTUP_COMMAND + STARTUP_MARKER to launch the configured claude binary
-// (plain on first run, --continue thereafter).
+// Env injected on top of process.env for every session. The TABTERM_* vars let
+// shell hooks / claude hooks call back into the server (POST /api/sessions/:id/
+// status). For "claude" kind we additionally set STARTUP_COMMAND/MARKER so
+// session-init.bash launches the configured claude binary (plain on first run,
+// --continue thereafter).
 function sessionEnv(sessionId: string, kind: SessionKind): Record<string, string> {
-  if (kind !== "claude") return {};
+  const base = {
+    TABTERM_SESSION_ID: sessionId,
+    TABTERM_BASE_URL: `http://127.0.0.1:${config.port}`,
+  };
+  if (kind !== "claude") return base;
   mkdirSync(MARKER_DIR, { recursive: true });
   return {
+    ...base,
     STARTUP_COMMAND: config.claudeCommand,
     STARTUP_MARKER: join(MARKER_DIR, `${sessionId}.claude-started`),
   };

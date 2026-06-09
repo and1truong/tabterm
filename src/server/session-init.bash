@@ -42,6 +42,24 @@ PS4='+ '
 proml
 
 # ---------------------
+# Shell running/idle indicator via OSC-133 shell-integration markers. The
+# tabterm proxy watches the PTY stream for these and toggles the session's
+# status in the sidebar.
+#   ESC ]133;A ST  prompt start  → idle
+#   ESC ]133;C ST  command start → running
+#   ESC ]133;D ST  command done  → idle
+# Skipped for "claude" sessions: there the whole claude binary is the foreground
+# command, so OSC-133 would just say "running forever". Claude reports its own
+# turn boundaries via the UserPromptSubmit / Stop hooks instead.
+# ---------------------
+if [ -z "$STARTUP_COMMAND" ]; then
+  _tabterm_preexec() { printf '\e]133;C\e\\'; }
+  _tabterm_precmd()  { printf '\e]133;D\e\\\e]133;A\e\\'; }
+  PROMPT_COMMAND="_tabterm_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+  trap '_tabterm_preexec' DEBUG
+fi
+
+# ---------------------
 # Optional startup command (set by tabterm for "claude" sessions). The marker
 # file lets us run the command plain on first launch and with --continue on
 # subsequent ones, so closing/reopening the browser tab resumes the conversation.

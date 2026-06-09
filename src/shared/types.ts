@@ -37,6 +37,10 @@ export interface Group {
 // (e.g. ~/bin/opus) on entry; on exit the user is dropped back at bash.
 export type SessionKind = "shell" | "claude";
 
+// Runtime liveness signal. Not persisted: starts undefined (treated as "idle")
+// on boot and changes via OSC-133 markers (shell) or claude hooks (claude).
+export type SessionStatus = "running" | "idle";
+
 export interface Session {
   id: string;
   primaryTabId: string;
@@ -49,6 +53,8 @@ export interface Session {
   // null = open; unix timestamp = soft-closed (hidden from sidebar, viewable in
   // the closed-sessions list, notes + AI history preserved).
   closedAt: number | null;
+  // Absent on persisted records; populated at runtime from the status tracker.
+  status?: SessionStatus;
 }
 
 // One note per session. Keyed by sessionId in AppState.notes.

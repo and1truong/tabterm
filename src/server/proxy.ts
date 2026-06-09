@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import { ensure, portOf } from "./gotty.ts";
+import { setStatus } from "./status.ts";
 
 // Shared-terminal proxy: every browser connection to a session attaches to ONE
 // upstream GoTTY connection (one shell), so all devices see identical output
@@ -29,6 +30,25 @@ const sessions = new Map<string, Shared>();
 
 function fromBase64(s: string): Uint8Array {
   return Uint8Array.fromBase64 ? Uint8Array.fromBase64(s) : new Uint8Array(Buffer.from(s, "base64"));
+}
+
+// Scan a chunk of PTY output for OSC-133 shell-integration markers emitted by
+// session-init.bash and update the session's running/idle status accordingly.
+// `;C` = command start; `;A` (prompt) / `;D` (command done) = back at the prompt.
+// Last marker in the chunk wins, so a "C ... D" burst inside one frame resolves
+// to idle as expected.
+const OSC133 = [0x1b, 0x5d, 0x31, 0x33, 0x33, 0x3b]; // ESC ] 1 3 3 ;
+function detectShellStatus(sessionId: string, bytes: Uint8Array): void {
+  let last: "running" | "idle" | null = null;
+  outer: for (let i = 0; i <= bytes.length - OSC133.length - 1; i++) {
+    for (let k = 0; k < OSC133.length; k++) {
+      if (bytes[i + k] !== OSC133[k]) continue outer;
+    }
+    const tag = bytes[i + OSC133.length];
+    if (tag === 0x43) last = "running";          // 'C'
+    else if (tag === 0x41 || tag === 0x44) last = "idle"; // 'A' or 'D'
+  }
+  if (last) setStatus(sessionId, last);
 }
 
 function bufferOutput(s: Shared, bytes: Uint8Array): void {
@@ -77,6 +97,7 @@ async function connectUpstream(s: Shared): Promise<void> {
     const data = typeof ev.data === "string" ? ev.data : td.decode(ev.data as ArrayBuffer);
     if (data[0] !== "1") return; // only Output frames matter to xterm
     const bytes = fromBase64(data.slice(1));
+    detectShellStatus(s.sessionId, bytes);
     bufferOutput(s, bytes);
     for (const client of s.clients) client.send(bytes);
   };

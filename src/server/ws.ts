@@ -18,6 +18,7 @@ import {
   upsertNote,
 } from "./db.ts";
 import { ensure, kill } from "./gotty.ts";
+import { attachStatuses, clearStatus, setStatusBroadcaster } from "./status.ts";
 
 // App-level WS connections (distinct from the per-session GoTTY proxy sockets
 // that arrive in v0.2). Mutations are persisted first, then broadcast to all.
@@ -36,9 +37,11 @@ function setPatch(entity: Entity, data: unknown): ServerMessage {
   return { type: "patch", entity, op: "set", data };
 }
 
+setStatusBroadcaster((session) => broadcast(setPatch("session", session)));
+
 export function onOpen(ws: ServerWebSocket<unknown>): void {
   pool.add(ws);
-  send(ws, { type: "init", state: loadState() });
+  send(ws, { type: "init", state: attachStatuses(loadState()) });
 }
 
 export function onClose(ws: ServerWebSocket<unknown>): void {
@@ -82,6 +85,7 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       const result = closeSession(msg.sessionId);
       if (!result) break;
       kill(msg.sessionId);
+      clearStatus(msg.sessionId);
       broadcast(setPatch("session", result.session));
       if (result.order) {
         broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
@@ -102,6 +106,7 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       const result = purgeSession(msg.sessionId);
       if (!result) break;
       kill(msg.sessionId);
+      clearStatus(msg.sessionId);
       broadcast({ type: "patch", entity: "session", op: "delete", id: msg.sessionId });
       if (result.order) {
         broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
@@ -121,7 +126,10 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       const result = closeTab(msg.tabId);
       if (!result) break;
       // Stop every shell in the hidden workspace so we don't leak processes.
-      for (const sid of result.sessionIds) kill(sid);
+      for (const sid of result.sessionIds) {
+        kill(sid);
+        clearStatus(sid);
+      }
       broadcast(setPatch("primaryTab", result.tab));
       break;
     }
@@ -138,6 +146,7 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       if (!result) break;
       for (const sid of result.sessionIds) {
         kill(sid);
+        clearStatus(sid);
         broadcast({ type: "patch", entity: "session", op: "delete", id: sid });
       }
       broadcast({ type: "patch", entity: "primaryTab", op: "delete", id: msg.tabId });
