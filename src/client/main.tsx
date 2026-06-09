@@ -8,6 +8,10 @@ import "./index.css";
 applyTheme(getInitialTheme());
 connect();
 
+window.addEventListener("beforeunload", (e) => {
+  e.preventDefault();
+});
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
