@@ -1,10 +1,8 @@
-import { useState } from "react";
-import { Archive, Compass, Folder, FolderArchive, Plus, X } from "lucide-react";
+import { Archive, Compass, FolderArchive, Plus, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.ts";
 import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
-import { CwdPickerModal } from "./CwdPickerModal.tsx";
 import { EditableLabel } from "./EditableLabel.tsx";
 
 function Switch({ on, onClick }: { on: boolean; onClick: () => void }) {
@@ -45,8 +43,6 @@ export function PrimaryTabs() {
   const tabs = Object.values(primaryTabs)
     .filter((t) => t.closedAt == null)
     .sort((a, b) => a.position - b.position);
-  const activeTab = activeId ? primaryTabs[activeId] : null;
-  const [pickerOpen, setPickerOpen] = useState(false);
 
   const sessionCountByTab = useStore(
     useShallow((s) => {
@@ -74,7 +70,6 @@ export function PrimaryTabs() {
   };
 
   return (
-    <>
     <div className="flex items-center gap-1 px-3 h-12 bg-[var(--panel)] border-b border-[var(--border)] select-none">
       <span className="w-9 h-9 grid place-items-center text-[var(--accent-soft)]">
         <Compass size={18} />
@@ -123,17 +118,6 @@ export function PrimaryTabs() {
         <Plus size={15} />
       </button>
 
-      {activeTab && (
-        <button
-          onClick={() => setPickerOpen(true)}
-          className="ml-3 flex items-center gap-1.5 px-2 h-7 rounded-md border border-[var(--border-2)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent)]"
-          title="Default working directory for new subtabs in this workspace. Click to choose."
-        >
-          <Folder size={13} className="shrink-0" />
-          <span className="mono text-xs max-w-[280px] truncate">{activeTab.cwd || "~"}</span>
-        </button>
-      )}
-
       <div className="ml-auto flex items-center gap-2.5">
         {closedTabsCount > 0 && (
           <button
@@ -159,16 +143,5 @@ export function PrimaryTabs() {
         <Switch on={showNotes} onClick={toggleNotes} />
       </div>
     </div>
-    {pickerOpen && activeTab && (
-      <CwdPickerModal
-        initial={activeTab.cwd}
-        onClose={() => setPickerOpen(false)}
-        onSelect={(path) => {
-          sendMessage({ type: "tab:setCwd", tabId: activeTab.id, cwd: path });
-          setPickerOpen(false);
-        }}
-      />
-    )}
-    </>
   );
 }
