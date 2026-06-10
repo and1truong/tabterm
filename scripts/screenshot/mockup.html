@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TabTerm preview</title>
+    <style>
+      :root {
+        --bg: #06080b;
+        --panel: #0e1117;
+        --header: #0b0e13;
+        --border: #242c3a;
+        --border-2: #3a4458;
+        --text: #f5f7fa;
+        --muted: #b0b9c8;
+        --faint: #6b748a;
+        --accent: #a3b4ff;
+        --accent-soft: #8ea5ff;
+        --orange: #fb923c;
+        --green: #4ade80;
+        --hover: #182030;
+        --active: #1c2536;
+        --term-bg: #06080b;
+        --term-fg: #ebeef4;
+        --brand-bg: #1a2340;
+        --brand-fg: #b0c0ff;
+        --switch-off: #3a4458;
+        --statusbar: #0b0e13;
+        --statusbar-fg: #c2cad8;
+        --statusbar-chip: #1c2536;
+
+        /* term token colors */
+        --tok-keyword: #c084fc;
+        --tok-string: #fda4af;
+        --tok-fn: #93c5fd;
+        --tok-var: #f5f7fa;
+        --tok-num: #fcd34d;
+        --tok-diff-add: rgba(74, 222, 128, 0.18);
+        --tok-comment: #6b748a;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Inter", sans-serif;
+        font-size: 14px;
+        -webkit-font-smoothing: antialiased;
+      }
+      .mono { font-family: ui-monospace, "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo, monospace; }
+
+      .app {
+        display: grid;
+        grid-template-rows: 48px 1fr 28px;
+        height: 100vh;
+        min-height: 800px;
+      }
+
+      /* ───────── Primary tabs ───────── */
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 12px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        user-select: none;
+      }
+      .topbar .compass {
+        width: 36px; height: 36px;
+        display: grid; place-items: center;
+        color: var(--accent-soft);
+      }
+      .tab {
+        position: relative;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--muted);
+        max-width: 200px;
+      }
+      .tab.active { color: var(--text); }
+      .tab.active::after {
+        content: "";
+        position: absolute;
+        left: 12px; right: 12px; bottom: -1px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--orange);
+      }
+      .plus-tab {
+        width: 28px; height: 28px;
+        display: grid; place-items: center;
+        border-radius: 999px;
+        border: 1px solid var(--border-2);
+        color: var(--muted);
+        margin-left: 4px;
+      }
+      .top-right {
+        margin-left: auto;
+        display: flex; align-items: center; gap: 10px;
+      }
+      .archive-chip {
+        display: flex; align-items: center; gap: 6px;
+        padding: 0 10px;
+        height: 28px;
+        border-radius: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .archive-chip .mono { font-size: 12px; }
+      .show-notes { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); }
+      .switch {
+        position: relative;
+        width: 36px; height: 20px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px; left: 18px;
+        width: 16px; height: 16px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+      }
+
+      /* ───────── Main split ───────── */
+      .main {
+        display: grid;
+        grid-template-columns: 256px 1fr 320px;
+        min-height: 0;
+      }
+
+      /* ───────── Sidebar ───────── */
+      .sidebar {
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .sidebar-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+        height: 48px;
+        border-bottom: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+      }
+      .sidebar-header .icon { color: var(--muted); display: inline-grid; place-items: center; }
+      .sidebar-header .spacer { flex: 1; }
+      .sidebar-header .btn { color: var(--muted); display: inline-grid; place-items: center; }
+      .sidebar-body {
+        flex: 1;
+        overflow: hidden;
+        padding: 8px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .row .num { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 12px; color: var(--faint); width: 16px; }
+      .row .label { flex: 1; }
+      .row.active {
+        background: var(--panel);
+        border-color: var(--border-2);
+        color: var(--text);
+        font-weight: 500;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+      }
+      .row .dot {
+        display: inline-block;
+        width: 6px; height: 6px;
+        border-radius: 999px;
+      }
+      .row.italic .label { font-style: italic; opacity: 0.6; }
+
+      .group-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--faint);
+      }
+      .group-header .caret { width: 16px; text-align: center; }
+      .group-header .gdot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+      .group-header .glabel { flex: 1; }
+      .group-children { padding-left: 8px; }
+
+      .sidebar-footer {
+        border-top: 1px solid var(--border);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .sidebar-btn {
+        display: flex; align-items: center; justify-content: center;
+        gap: 8px;
+        padding: 8px 0;
+        border: 1px solid var(--border-2);
+        border-radius: 8px;
+        color: var(--text);
+        font-size: 14px;
+      }
+      .sidebar-btn .ico-violet { color: #c084fc; }
+      .sidebar-btn .ico-amber { color: #fbbf24; }
+
+      /* ───────── Center ───────── */
+      .center {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        background: var(--bg);
+      }
+      .console-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 16px;
+        height: 48px;
+        border-bottom: 1px solid var(--border);
+      }
+      .console-header .chev { color: var(--accent-soft); }
+      .console-header .title {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .console-header .title .active { color: var(--orange); }
+      .cwd-chip {
+        display: flex; align-items: center; gap: 6px;
+        padding: 4px 10px;
+        height: 28px;
+        border-radius: 6px;
+        background: var(--active);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .cwd-chip svg { color: var(--faint); }
+      .console-header .right {
+        margin-left: auto;
+        display: flex; align-items: center; gap: 12px;
+        font-size: 12px;
+      }
+      .console-header .ready { color: var(--green); font-weight: 600; letter-spacing: 0.04em; }
+      .console-header .who { color: var(--muted); }
+
+      .terminal {
+        flex: 1;
+        overflow: hidden;
+        padding: 18px 20px 14px;
+        font-family: ui-monospace, "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo, monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--term-fg);
+        background: var(--term-bg);
+      }
+      .terminal .bullet { color: var(--accent-soft); }
+      .terminal .marker-dot { color: var(--accent-soft); }
+      .terminal .kw { color: var(--tok-keyword); }
+      .terminal .str { color: var(--tok-string); }
+      .terminal .fn { color: var(--tok-fn); }
+      .terminal .num { color: var(--tok-num); }
+      .terminal .com { color: var(--tok-comment); }
+      .terminal .green { color: var(--green); }
+      .terminal .orange { color: var(--orange); }
+      .terminal .muted { color: var(--muted); }
+      .terminal .faint { color: var(--faint); }
+      .terminal pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .terminal .add-line {
+        background: var(--tok-diff-add);
+        margin: 0 -20px;
+        padding: 0 20px;
+      }
+      .terminal h-rule {
+        display: block;
+        border-top: 1px solid var(--border);
+        margin: 10px 0;
+      }
+
+      .prompt-row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 6px 20px 4px;
+        font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+        font-size: 13px;
+      }
+      .prompt-row .chev { color: var(--accent-soft); }
+      .caret-box {
+        display: inline-block;
+        width: 8px; height: 14px;
+        background: var(--term-fg);
+        opacity: 0.65;
+        animation: none;
+        vertical-align: middle;
+      }
+      .meta-row {
+        padding: 4px 20px 6px;
+        font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .meta-row .num { color: var(--tok-num); }
+      .meta-row .accent { color: var(--accent-soft); }
+      .meta-row .green { color: var(--green); }
+      .meta-row .faint { color: var(--faint); }
+      .tip-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 20px 12px;
+        border-top: 1px solid var(--border);
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--faint);
+      }
+      .tip-row .label { color: var(--muted); }
+      .tip-row .word { color: var(--accent-soft); }
+
+      /* ───────── Notes ───────── */
+      .notes {
+        background: var(--panel);
+        border-left: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .notes-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 0 16px;
+        height: 48px;
+        border-bottom: 1px solid var(--border);
+      }
+      .notes-header .icon { color: var(--muted); }
+      .notes-header .title {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        flex: 1;
+      }
+      .notes-header .chev { color: var(--faint); }
+      .notes-meta {
+        display: flex; align-items: center; gap: 8px;
+        padding: 12px 16px 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .notes-meta .for { color: var(--faint); }
+      .notes-meta .session-name { color: var(--text); font-weight: 500; }
+      .notes-meta .new {
+        margin-left: auto;
+        display: flex; align-items: center; gap: 4px;
+        color: var(--accent-soft);
+      }
+      .notes-toolbar {
+        display: flex; align-items: center; gap: 4px;
+        padding: 0 12px 8px;
+        color: var(--muted);
+      }
+      .notes-toolbar .tb {
+        width: 30px; height: 28px;
+        display: grid; place-items: center;
+        border-radius: 6px;
+        color: var(--muted);
+      }
+      .notes-toolbar .tb.active { background: var(--active); color: var(--text); }
+      .notes-toolbar .sep {
+        width: 1px; height: 18px; background: var(--border);
+        margin: 0 2px;
+      }
+      .notes-body {
+        flex: 1;
+        padding: 12px 18px 0;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .notes-body h3 {
+        font-size: 15px;
+        margin: 12px 0 8px;
+        color: var(--text);
+        font-weight: 700;
+      }
+      .notes-body ol {
+        margin: 4px 0 0;
+        padding-left: 22px;
+        color: var(--text);
+      }
+      .notes-body li {
+        margin: 6px 0;
+        line-height: 1.55;
+      }
+      .notes-footer {
+        padding: 10px 16px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      /* ───────── Status bar ───────── */
+      .status {
+        display: flex; align-items: center; gap: 12px;
+        padding: 0 14px;
+        background: var(--statusbar);
+        color: var(--statusbar-fg);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+      }
+      .status .seg { display: flex; align-items: center; gap: 6px; }
+      .status .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--green); }
+      .status .sep { color: var(--faint); }
+      .status .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+      .status .pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--statusbar-chip);
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      /* ───── icon style ───── */
+      svg { display: block; }
+      .icn { width: 16px; height: 16px; }
+      .icn-sm { width: 13px; height: 13px; }
+      .icn-md { width: 18px; height: 18px; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <!-- ───────── Primary tabs ───────── -->
+      <header class="topbar">
+        <span class="compass">
+          <!-- Compass icon -->
+          <svg class="icn-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+        </span>
+        <div class="tab">garden</div>
+        <div class="tab">lab</div>
+        <div class="tab active">demo</div>
+        <span class="plus-tab">
+          <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </span>
+        <div class="top-right">
+          <span class="archive-chip">
+            <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v13h14V7"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+            <span class="mono">12</span>
+          </span>
+          <span class="show-notes">SHOW NOTES</span>
+          <span class="switch"></span>
+        </div>
+      </header>
+
+      <!-- ───────── Body ───────── -->
+      <main class="main">
+        <!-- ───── Sidebar ───── -->
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <span class="icon">
+              <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><circle cx="9" cy="9" r="2"/><circle cx="15" cy="15" r="2"/><line x1="9" y1="11" x2="15" y2="13"/></svg>
+            </span>
+            <span class="spacer">NESTED TABS</span>
+            <span class="btn"><svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></span>
+            <span class="btn"><svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/><path d="m11 9-2 3 2 3"/></svg></span>
+          </div>
+
+          <div class="sidebar-body">
+            <!-- Top-level session -->
+            <div class="row">
+              <span class="num">1.</span>
+              <span class="label" style="font-style: italic; opacity: 0.7;">scratch</span>
+            </div>
+
+            <!-- Group: SHIPPED (collapsed) -->
+            <div class="group-header">
+              <span class="caret">▸</span>
+              <span class="gdot" style="background: #4ade80;"></span>
+              <span class="glabel">SHIPPED</span>
+            </div>
+
+            <!-- Group: REVIEW (open) -->
+            <div class="group-header">
+              <span class="caret">▾</span>
+              <span class="gdot" style="background: #f59e0b;"></span>
+              <span class="glabel">REVIEW</span>
+            </div>
+            <div class="group-children">
+              <div class="row">
+                <span class="num">2.</span>
+                <span class="dot" style="background: #f59e0b;"></span>
+                <span class="label">command palette</span>
+              </div>
+              <div class="row">
+                <span class="num">3.</span>
+                <span class="dot" style="background: #f59e0b;"></span>
+                <span class="label">drag &amp; drop reorder</span>
+              </div>
+              <div class="row">
+                <span class="num">4.</span>
+                <span class="dot" style="background: #f59e0b;"></span>
+                <span class="label">multi-note workspace</span>
+              </div>
+            </div>
+
+            <!-- Active session at top level -->
+            <div class="row active" style="margin-top: 4px;">
+              <span class="num">5.</span>
+              <span class="label">auto focus</span>
+            </div>
+          </div>
+
+          <div class="sidebar-footer">
+            <button class="sidebar-btn">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Session
+            </button>
+            <button class="sidebar-btn">
+              <span class="ico-violet">
+                <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 9.5 8.5 3 9l5 4.5L6.5 20 12 16.8 17.5 20 16 13.5 21 9l-6.5-.5z"/></svg>
+              </span>
+              Opus session
+            </button>
+            <button class="sidebar-btn">
+              <span class="ico-amber">
+                <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 12 4-9 3 13 4-19 3 18 3-12 3 9"/></svg>
+              </span>
+              Fable session
+            </button>
+          </div>
+        </aside>
+
+        <!-- ───── Center: terminal ───── -->
+        <section class="center">
+          <div class="console-header">
+            <span class="chev">
+              <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+            <span class="title"><span class="active">AUTO FOCUS</span> &nbsp; TERMINAL CONSOLE</span>
+            <span class="cwd-chip">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span class="mono">~/code/demo-app</span>
+            </span>
+            <div class="right">
+              <span class="ready">READY</span>
+              <span class="who mono">guest@sandbox</span>
+            </div>
+          </div>
+
+          <div class="terminal">
+<pre><span class="bullet">●</span> Wiring the command palette to jump straight to the active terminal:
+
+  <span class="kw">Update</span>(<span class="muted">src/client/components/CommandPalette.tsx</span>)
+    <span class="faint">Added 1 line</span>
+       <span class="faint">44</span>    <span class="kw">const</span> setActivePrimaryTab = useStore((<span class="num">s</span>) =&gt; s.setActivePrimaryTab);
+       <span class="faint">45</span>    <span class="kw">const</span> setActiveSession    = useStore((<span class="num">s</span>) =&gt; s.setActiveSession);
+       <span class="faint">46</span>    <span class="kw">const</span> requestFocus       = useStore((<span class="num">s</span>) =&gt; s.requestFocus);
+<span class="add-line">       <span class="green">47 +</span>  <span class="kw">const</span> focusActiveTerminal = useStore((<span class="num">s</span>) =&gt; s.focusActiveTerminal);</span>
+       <span class="faint">48</span>    <span class="kw">const</span> toggleArchive      = useStore((<span class="num">s</span>) =&gt; s.toggleArchive);
+
+  <span class="kw">Update</span>(<span class="muted">src/client/components/CommandPalette.tsx</span>)
+    <span class="faint">Added 2 lines</span>
+      <span class="faint">248</span>        setActivePrimaryTab(entry.session.primaryTabId);
+      <span class="faint">249</span>      }
+      <span class="faint">250</span>      setActiveSession(entry.session.id);
+<span class="add-line">      <span class="green">251 +</span>    focusActiveTerminal();</span>
+      <span class="faint">252</span>      toggle();
+      <span class="faint">253</span>    } <span class="kw">else if</span> (entry.kind === <span class="str">"primaryTab"</span>) {
+      <span class="faint">254</span>      setActivePrimaryTab(entry.id);
+<span class="add-line">      <span class="green">255 +</span>    focusActiveTerminal();</span>
+      <span class="faint">256</span>      toggle();
+      <span class="faint">257</span>    } <span class="kw">else</span> {
+      <span class="faint">258</span>      entry.run();
+
+<span class="bullet">●</span> Verifying with a typecheck.
+
+  <span class="kw">Bash</span>(<span class="muted">bun run typecheck 2&gt;&amp;1 | tail -30</span>)
+   <span class="muted">$ tsc --noEmit</span>
+
+<span class="bullet">●</span> Clean.
+
+  <span class="green">Done.</span> Jumping to a session via the command palette now focuses the xterm console.
+
+  <span class="muted">- store.ts</span>: added <span class="fn">focusTerminalEpoch</span> + <span class="fn">focusActiveTerminal()</span> &mdash; a bump-counter signal, no payload.
+  <span class="muted">- Terminal.tsx</span>: watches the epoch and calls <span class="fn">term.focus()</span> on the next frame.
+  <span class="muted">- CommandPalette.tsx</span>: calls <span class="fn">focusActiveTerminal()</span> for both session-jump and workspace-jump activations.
+
+  The <span class="kw">rAF</span> defer matters when activating a session in a <span class="orange">different</span> workspace &mdash; the Terminal remounts on the
+  workspace switch and needs a tick before <span class="fn">term.focus()</span> lands.
+
+  <span class="faint">✱ Baked for 47s</span>
+</pre>
+          </div>
+
+          <div class="prompt-row">
+            <span class="chev">›</span>
+            <span class="caret-box"></span>
+          </div>
+          <div class="meta-row">
+            <span class="accent mono">~/code/demo-app</span> <span class="faint">|</span> <span class="green">Opus 4.7</span> <span class="faint">|</span> ctx: <span class="num">6%</span>
+          </div>
+          <div class="meta-row">
+            <span class="green mono">▸▸ auto mode on</span> <span class="faint">(shift+tab to cycle)</span> <span class="faint">·</span> <span class="accent">↑</span> for agents
+          </div>
+          <div class="tip-row">
+            <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span class="label">Quick tips:</span>
+            <span class="word">help</span> · <span class="word">notes</span> · <span class="word">view</span> · <span class="word">status</span>
+          </div>
+        </section>
+
+        <!-- ───── Notes ───── -->
+        <aside class="notes">
+          <div class="notes-header">
+            <span class="icon">
+              <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h11l5 5v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><polyline points="14 3 14 8 19 8"/></svg>
+            </span>
+            <span class="title">NOTES WORKSPACE</span>
+            <span class="chev">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </div>
+          <div class="notes-meta">
+            <span class="for">For session:</span>
+            <span class="session-name">auto focus</span>
+            <span class="new">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New
+            </span>
+          </div>
+          <div class="notes-toolbar">
+            <span class="tb"><b>B</b></span>
+            <span class="tb"><i>I</i></span>
+            <span class="tb mono">&lt;/&gt;</span>
+            <span class="sep"></span>
+            <span class="tb">H<sub>1</sub></span>
+            <span class="tb">H<sub>2</sub></span>
+            <span class="sep"></span>
+            <span class="tb">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            </span>
+            <span class="tb active">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg>
+            </span>
+            <span class="sep"></span>
+            <span class="tb">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3-1 3-7 0-8 4-2 4-9 0-10"/><path d="M14 21c3-1 3-7 0-8 4-2 4-9 0-10"/></svg>
+            </span>
+            <span class="tb">
+              <svg class="icn-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            </span>
+          </div>
+          <div class="notes-body">
+            <h3>Improvements</h3>
+            <ol>
+              <li>Notes with markdown format</li>
+              <li>Multiple notes per session</li>
+              <li>Command palette (cmd+K) with attention pings</li>
+              <li>Primary tabs: drag and drop to reorganise</li>
+            </ol>
+          </div>
+          <div class="notes-footer">
+            <span class="mono">28 word(s) · 179 char(s)</span>
+          </div>
+        </aside>
+      </main>
+
+      <!-- ───────── Status bar ───────── -->
+      <footer class="status">
+        <span class="seg"><span class="dot"></span><b>READY</b></span>
+        <span class="sep">·</span>
+        <span class="seg">main*</span>
+        <span class="sep">·</span>
+        <span class="seg">Node Dev Server: <span class="mono">3030</span></span>
+        <span class="sep">·</span>
+        <span class="seg">Active: <span class="mono">demo</span> <span class="sep">›</span> <span class="mono">auto focus</span></span>
+        <div class="right">
+          <span class="pill">STATE PERSISTED</span>
+          <span class="seg">UTF-8</span>
+          <span class="sep">·</span>
+          <span class="seg">Terminal: <span class="pill">Slate Standard</span></span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
