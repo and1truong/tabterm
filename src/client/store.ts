@@ -26,7 +26,11 @@ interface StoreState extends AppState {
   // SessionIds that pinged for attention (claude Notification hook) and haven't
   // been viewed since. Drives the sidebar/tab badges. Cleared on activation.
   attention: Set<string>;
+  // Bumped to ask the active Terminal to grab keyboard focus (e.g. after jumping
+  // via the command palette). Terminals watch the value, not the contents.
+  focusTerminalEpoch: number;
   theme: Theme;
+  showSidebar: boolean;
   showNotes: boolean;
   showClosedSessions: boolean;
   showClosedTabs: boolean;
@@ -39,7 +43,9 @@ interface StoreState extends AppState {
   setActivePrimaryTab: (id: string) => void;
   setActiveSession: (id: string | null) => void;
   requestFocus: (id: string) => void;
+  focusActiveTerminal: () => void;
   toggleTheme: () => void;
+  toggleSidebar: () => void;
   toggleNotes: () => void;
   toggleClosedSessions: () => void;
   toggleClosedTabs: () => void;
@@ -78,7 +84,9 @@ export const useStore = create<StoreState>((set, get) => ({
   lastSessionByTab: {},
   pendingFocusSessionId: null,
   attention: new Set(),
+  focusTerminalEpoch: 0,
   theme: getInitialTheme(),
+  showSidebar: true,
   showNotes: true,
   showClosedSessions: false,
   showClosedTabs: false,
@@ -99,11 +107,13 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ activeSessionId: id, lastSessionByTab: next, attention: cleared(get, id) });
   },
   requestFocus: (id) => set({ pendingFocusSessionId: id }),
+  focusActiveTerminal: () => set({ focusTerminalEpoch: get().focusTerminalEpoch + 1 }),
   toggleTheme: () => {
     const theme = get().theme === "dark" ? "light" : "dark";
     applyTheme(theme);
     set({ theme });
   },
+  toggleSidebar: () => set({ showSidebar: !get().showSidebar }),
   toggleNotes: () => set({ showNotes: !get().showNotes }),
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
@@ -151,11 +161,19 @@ export const useStore = create<StoreState>((set, get) => ({
 
     // patch
     if (msg.op === "delete") {
+      if (msg.entity === "note") {
+        const notes = { ...get().notes };
+        delete notes[msg.id];
+        set({ notes });
+        return;
+      }
       if (msg.entity === "session") {
         const sessions = { ...get().sessions };
         delete sessions[msg.id];
         const notes = { ...get().notes };
-        delete notes[msg.id];
+        for (const [nid, n] of Object.entries(notes)) {
+          if (n.sessionId === msg.id) delete notes[nid];
+        }
         const activeSessionId =
           get().activeSessionId === msg.id ? null : get().activeSessionId;
         const lastSessionByTab = { ...get().lastSessionByTab };
@@ -172,11 +190,15 @@ export const useStore = create<StoreState>((set, get) => ({
         // tab-keyed and we own that cleanup client-side.
         const sessions = { ...get().sessions };
         const notes = { ...get().notes };
+        const purgedSessionIds = new Set<string>();
         for (const sid of Object.keys(sessions)) {
           if (sessions[sid].primaryTabId === msg.id) {
+            purgedSessionIds.add(sid);
             delete sessions[sid];
-            delete notes[sid];
           }
+        }
+        for (const [nid, n] of Object.entries(notes)) {
+          if (purgedSessionIds.has(n.sessionId)) delete notes[nid];
         }
         const order = { ...get().order };
         delete order[msg.id];
@@ -246,7 +268,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       case "note": {
         const n = msg.data as Note;
-        set({ notes: { ...get().notes, [n.sessionId]: n } });
+        set({ notes: { ...get().notes, [n.id]: n } });
         break;
       }
     }

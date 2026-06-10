@@ -5,8 +5,10 @@ import {
   closeSession,
   closeTab,
   createGroup,
+  createNote,
   createSession,
   createTab,
+  deleteNote,
   loadState,
   purgeSession,
   purgeTab,
@@ -14,9 +16,11 @@ import {
   reopenSession,
   reopenTab,
   reorderTabs,
+  setActiveNote,
   setTabCwd,
   toggleGroup,
-  upsertNote,
+  updateNoteContent,
+  updateNoteTitle,
 } from "./db.ts";
 import { config } from "./config.ts";
 import { ensure, kill } from "./gotty.ts";
@@ -179,8 +183,31 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       for (const session of sessions) broadcast(setPatch("session", session));
       break;
     }
+    case "note:create": {
+      const result = createNote(msg.sessionId, msg.id);
+      if (!result) break;
+      broadcast(setPatch("note", result.note));
+      broadcast(setPatch("session", result.session));
+      break;
+    }
     case "note:update": {
-      broadcast(setPatch("note", upsertNote(msg.sessionId, msg.content)));
+      // Either or both fields may be present.
+      let note = null;
+      if (msg.content !== undefined) note = updateNoteContent(msg.noteId, msg.content);
+      if (msg.title !== undefined) note = updateNoteTitle(msg.noteId, msg.title);
+      if (note) broadcast(setPatch("note", note));
+      break;
+    }
+    case "note:delete": {
+      const result = deleteNote(msg.noteId);
+      if (!result) break;
+      broadcast({ type: "patch", entity: "note", op: "delete", id: result.deletedId });
+      if (result.session) broadcast(setPatch("session", result.session));
+      break;
+    }
+    case "note:setActive": {
+      const session = setActiveNote(msg.sessionId, msg.noteId);
+      if (session) broadcast(setPatch("session", session));
       break;
     }
   }

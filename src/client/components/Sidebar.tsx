@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { FolderPlus, FolderTree, Plus, X } from "lucide-react";
+import { FolderPlus, FolderTree, PanelLeftClose, Plus, X } from "lucide-react";
 import type { GroupColor, SessionKind } from "../../shared/types.ts";
 import { GROUP_COLORS } from "../../shared/types.ts";
 import { buildTree, intoGroup, toTop, type Tree } from "../layout.ts";
@@ -32,6 +32,7 @@ export function Sidebar() {
   const setActiveSession = useStore((s) => s.setActiveSession);
   const requestFocus = useStore((s) => s.requestFocus);
   const sessionCommands = useStore((s) => s.sessionCommands);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
 
   const drag = useRef<Drag | null>(null);
   const grpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -184,6 +185,9 @@ export function Sidebar() {
         <span className="text-xs font-semibold tracking-wide text-[var(--muted)] flex-1">NESTED TABS</span>
         <button onClick={addGroup} className="text-[var(--muted)] hover:text-[var(--text)]" title="New group">
           <FolderPlus size={16} />
+        </button>
+        <button onClick={toggleSidebar} className="text-[var(--muted)] hover:text-[var(--text)]" title="Hide sidebar (⌘B)">
+          <PanelLeftClose size={16} />
         </button>
       </div>
 

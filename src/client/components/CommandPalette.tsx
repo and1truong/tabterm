@@ -44,6 +44,7 @@ export function CommandPalette() {
   const setActivePrimaryTab = useStore((s) => s.setActivePrimaryTab);
   const setActiveSession = useStore((s) => s.setActiveSession);
   const requestFocus = useStore((s) => s.requestFocus);
+  const focusActiveTerminal = useStore((s) => s.focusActiveTerminal);
   const toggleClosedSessions = useStore((s) => s.toggleClosedSessions);
   const toggleClosedTabs = useStore((s) => s.toggleClosedTabs);
 
@@ -247,9 +248,11 @@ export function CommandPalette() {
         setActivePrimaryTab(entry.session.primaryTabId);
       }
       setActiveSession(entry.session.id);
+      focusActiveTerminal();
       toggle();
     } else if (entry.kind === "primaryTab") {
       setActivePrimaryTab(entry.id);
+      focusActiveTerminal();
       toggle();
     } else {
       entry.run();

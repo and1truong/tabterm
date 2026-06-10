@@ -55,12 +55,25 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS notes (
-    session_id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT 'Untitled',
     content TEXT NOT NULL DEFAULT '',
+    title_auto_derived INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
 `);
+
+// Derive a sensible title from the first non-empty line of markdown content.
+// Used by the single-row → multi-note migration and by note mutations whenever
+// `titleAutoDerived = 1`.
+function deriveTitle(content: string): string {
+  const line = content.split("\n").map((l) => l.trim()).find((l) => l.length > 0);
+  return (line ?? "").slice(0, 60) || "Untitled";
+}
 
 // Add sessions.closed_at to pre-existing databases (NULL = open, unix ts = closed).
 const sessionCols = db
@@ -72,6 +85,11 @@ if (!sessionCols.includes("closed_at")) {
 }
 if (!sessionCols.includes("kind")) {
   db.exec("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'shell'");
+}
+// Which note shows in the NotesPanel for a session; populated by the
+// single-row notes migration below for sessions that had a pre-existing note.
+if (!sessionCols.includes("active_note_id")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN active_note_id TEXT");
 }
 
 // Rename the legacy "claude" kind to "opus" so existing rows match the default
@@ -93,27 +111,55 @@ if (!primaryTabCols.includes("closed_at")) {
   db.exec("ALTER TABLE primary_tabs ADD COLUMN closed_at INTEGER");
 }
 
-// Migrate the old multi-row notes schema (id, position) to one row per session,
-// collapsing a session's notes into a single record in position order.
+// Migrate the prior single-row notes schema (session_id PK, content, updated_at)
+// to the multi-note schema. Each pre-existing note becomes one row with a
+// derived title; sessions.active_note_id points at the migrated note so the
+// NotesPanel restores to the same content on next open.
 const noteCols = db
   .query<{ name: string }, []>("PRAGMA table_info(notes)")
   .all()
   .map((c) => c.name);
-if (noteCols.includes("position")) {
-  db.exec(`
-    CREATE TABLE notes_new (
-      session_id TEXT PRIMARY KEY,
-      content TEXT NOT NULL DEFAULT '',
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+if (!noteCols.includes("id")) {
+  interface LegacyNoteRow {
+    session_id: string;
+    content: string;
+    updated_at: number;
+  }
+  const legacy = db
+    .query<LegacyNoteRow, []>("SELECT session_id, content, updated_at FROM notes")
+    .all();
+  db.transaction(() => {
+    db.exec(`
+      DROP TABLE notes;
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT 'Untitled',
+        content TEXT NOT NULL DEFAULT '',
+        title_auto_derived INTEGER NOT NULL DEFAULT 1,
+        position INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+      CREATE INDEX idx_notes_session ON notes(session_id, position);
+    `);
+    const insert = db.query(
+      "INSERT INTO notes (id, session_id, title, content, title_auto_derived, position, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, 1, 0, ?, ?)",
     );
-    INSERT INTO notes_new (session_id, content, updated_at)
-      SELECT session_id, group_concat(content, char(10) || char(10)), MAX(updated_at)
-      FROM (SELECT * FROM notes ORDER BY position)
-      GROUP BY session_id;
-    DROP TABLE notes;
-    ALTER TABLE notes_new RENAME TO notes;
-  `);
+    const setActive = db.query("UPDATE sessions SET active_note_id = ? WHERE id = ?");
+    for (const r of legacy) {
+      const id = randomUUID();
+      insert.run(id, r.session_id, deriveTitle(r.content), r.content, r.updated_at, r.updated_at);
+      setActive.run(id, r.session_id);
+    }
+  })();
+  if (legacy.length) console.log(`[db] migrated ${legacy.length} note(s) to multi-note schema`);
 }
+
+// Index for the now-stable schema; safe on fresh DBs (created by IF NOT EXISTS
+// above) and on migrated ones alike.
+db.exec("CREATE INDEX IF NOT EXISTS idx_notes_session ON notes(session_id, position);");
 
 // ---- row mappers -------------------------------------------------------------
 
@@ -128,11 +174,13 @@ interface GroupRow {
 interface SessionRow {
   id: string; primary_tab_id: string; group_id: string | null; label: string;
   cwd: string; gotty_port: number | null; position: number; kind: string;
-  closed_at: number | null;
+  closed_at: number | null; active_note_id: string | null;
 }
 interface OrderRow { primary_tab_id: string; order_json: string }
 interface NoteRow {
-  session_id: string; content: string; updated_at: number;
+  id: string; session_id: string; title: string; content: string;
+  title_auto_derived: number; position: number;
+  created_at: number; updated_at: number;
 }
 
 const toPrimaryTab = (r: PrimaryTabRow): PrimaryTab => ({
@@ -160,10 +208,16 @@ const toSession = (r: SessionRow): Session => ({
   position: r.position,
   kind: (r.kind ?? "shell") as SessionKind,
   closedAt: r.closed_at,
+  activeNoteId: r.active_note_id ?? null,
 });
 const toNote = (r: NoteRow): Note => ({
+  id: r.id,
   sessionId: r.session_id,
+  title: r.title,
   content: r.content,
+  titleAutoDerived: r.title_auto_derived === 1,
+  position: r.position,
+  createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
 
@@ -227,12 +281,31 @@ const q = {
       "ON CONFLICT(primary_tab_id) DO UPDATE SET order_json = excluded.order_json",
   ),
 
-  allNotes: db.query<NoteRow, []>("SELECT * FROM notes"),
-  getNote: db.query<NoteRow, [string]>("SELECT * FROM notes WHERE session_id = ?"),
-  upsertNote: db.query(
-    "INSERT INTO notes (session_id, content, updated_at) VALUES (?, ?, unixepoch()) " +
-      "ON CONFLICT(session_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+  allNotes: db.query<NoteRow, []>("SELECT * FROM notes ORDER BY session_id, position"),
+  getNote: db.query<NoteRow, [string]>("SELECT * FROM notes WHERE id = ?"),
+  insertNote: db.query(
+    "INSERT INTO notes (id, session_id, title, content, title_auto_derived, position, created_at, updated_at) " +
+      "VALUES (?, ?, 'Untitled', '', 1, ?, unixepoch(), unixepoch())",
   ),
+  updateNoteContent: db.query(
+    "UPDATE notes SET content = ?, updated_at = unixepoch() WHERE id = ?",
+  ),
+  updateNoteContentAndTitle: db.query(
+    "UPDATE notes SET content = ?, title = ?, updated_at = unixepoch() WHERE id = ?",
+  ),
+  updateNoteTitle: db.query(
+    "UPDATE notes SET title = ?, title_auto_derived = 0, updated_at = unixepoch() WHERE id = ?",
+  ),
+  deleteNote: db.query("DELETE FROM notes WHERE id = ?"),
+  // Latest-touched remaining note in the session, excluding the one we're about
+  // to delete. Used to pick the next active note when the active one goes away.
+  mostRecentNoteForSession: db.query<{ id: string }, [string, string]>(
+    "SELECT id FROM notes WHERE session_id = ? AND id != ? ORDER BY updated_at DESC LIMIT 1",
+  ),
+  maxNotePos: db.query<{ p: number | null }, [string]>(
+    "SELECT MAX(position) AS p FROM notes WHERE session_id = ?",
+  ),
+  setSessionActiveNote: db.query("UPDATE sessions SET active_note_id = ? WHERE id = ?"),
 };
 
 // ---- state loading -----------------------------------------------------------
@@ -251,7 +324,7 @@ export function loadState(): AppState {
   for (const r of q.allOrders.all()) order[r.primary_tab_id] = JSON.parse(r.order_json);
 
   const notes: AppState["notes"] = {};
-  for (const r of q.allNotes.all()) notes[r.session_id] = toNote(r);
+  for (const r of q.allNotes.all()) notes[r.id] = toNote(r);
 
   return { primaryTabs, groups, sessions, order, notes };
 }
@@ -528,9 +601,72 @@ export function allSessionIds(): string[] {
 
 // ---- notes -------------------------------------------------------------------
 
-export function upsertNote(sessionId: string, content: string): Note {
-  q.upsertNote.run(sessionId, content);
-  return toNote(q.getNote.get(sessionId)!);
+// Create a fresh note for a session, append it to the position list, and make
+// it the active note for that session. Returns the new note plus the updated
+// session (so the WS layer can broadcast both patches).
+export function createNote(
+  sessionId: string,
+  id: string = randomUUID(),
+): { note: Note; session: Session } | null {
+  if (!q.getSession.get(sessionId)) return null;
+  const position = (q.maxNotePos.get(sessionId)?.p ?? -1) + 1;
+  q.insertNote.run(id, sessionId, position);
+  q.setSessionActiveNote.run(id, sessionId);
+  return {
+    note: toNote(q.getNote.get(id)!),
+    session: toSession(q.getSession.get(sessionId)!),
+  };
+}
+
+// Content-only update: refresh the markdown body and, while the title still
+// follows the first line, recompute it from the new content in the same write.
+export function updateNoteContent(noteId: string, content: string): Note | null {
+  const existing = q.getNote.get(noteId);
+  if (!existing) return null;
+  if (existing.title_auto_derived === 1) {
+    q.updateNoteContentAndTitle.run(content, deriveTitle(content), noteId);
+  } else {
+    q.updateNoteContent.run(content, noteId);
+  }
+  return toNote(q.getNote.get(noteId)!);
+}
+
+// Manual rename: stops the first-line auto-derivation so subsequent content
+// edits don't clobber the user's chosen title.
+export function updateNoteTitle(noteId: string, title: string): Note | null {
+  const existing = q.getNote.get(noteId);
+  if (!existing) return null;
+  q.updateNoteTitle.run(title.trim() || "Untitled", noteId);
+  return toNote(q.getNote.get(noteId)!);
+}
+
+// Delete a note. If it was the session's active note, promote the most
+// recently-touched remaining note (or clear active_note_id if none remain).
+// Returns the session id, the deleted note id, and the updated session row
+// only when active_note_id actually changed — caller decides whether to
+// broadcast the session patch.
+export function deleteNote(
+  noteId: string,
+): { sessionId: string; deletedId: string; session: Session | null } | null {
+  const existing = q.getNote.get(noteId);
+  if (!existing) return null;
+  const sessionId = existing.session_id;
+  const sessionRow = q.getSession.get(sessionId);
+  q.deleteNote.run(noteId);
+  let session: Session | null = null;
+  if (sessionRow?.active_note_id === noteId) {
+    const next = q.mostRecentNoteForSession.get(sessionId, noteId)?.id ?? null;
+    q.setSessionActiveNote.run(next, sessionId);
+    session = toSession(q.getSession.get(sessionId)!);
+  }
+  return { sessionId, deletedId: noteId, session };
+}
+
+export function setActiveNote(sessionId: string, noteId: string): Session | null {
+  if (!q.getSession.get(sessionId)) return null;
+  if (!q.getNote.get(noteId)) return null;
+  q.setSessionActiveNote.run(noteId, sessionId);
+  return toSession(q.getSession.get(sessionId)!);
 }
 
 export function getSession(sessionId: string): Session | null {

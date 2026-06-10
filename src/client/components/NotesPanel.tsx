@@ -1,48 +1,181 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { Plus, Trash2 } from "lucide-react";
+import type { Editor } from "@tiptap/react";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
+import { uuid } from "../uuid.ts";
+import type { Note } from "../../shared/types.ts";
+import { TiptapEditor } from "./TiptapEditor.tsx";
+import { EditableLabel } from "./EditableLabel.tsx";
 
-// One note per session: controlled but focus-aware so a remote edit appears live
-// except while you're typing. Local edits auto-save with a 300ms debounce.
+// Multi-note workspace per session. Zero notes → identical UX to the prior
+// single-textarea panel: one editor with a "Write a note…" placeholder; the
+// first keystroke silently creates the note. Two-or-more notes → a compact
+// list of titles above the editor; clicking switches active note (persisted
+// server-side via Session.activeNoteId).
 export function NotesPanel({ sessionId }: { sessionId: string }) {
-  const content = useStore((s) => s.notes[sessionId]?.content ?? "");
   const label = useStore((s) => s.sessions[sessionId]?.label ?? "—");
+  const storeActiveId = useStore((s) => s.sessions[sessionId]?.activeNoteId ?? null);
 
-  const [value, setValue] = useState(content);
-  const focused = useRef(false);
+  const notes = useStore((s) => s.notes);
+  const notesForSession = useMemo<Note[]>(
+    () =>
+      Object.values(notes)
+        .filter((n) => n.sessionId === sessionId)
+        .sort((a, b) => a.position - b.position),
+    [notes, sessionId],
+  );
+
+  // The id we minted optimistically during the empty-state first-keystroke
+  // flow. Until the server's `note:create` broadcast lands and the store's
+  // activeNoteId catches up, this is the only id that knows where to route
+  // pending `note:update` messages.
+  const pendingId = useRef<string | null>(null);
+
+  // Held so onSwitch can force-blur the editor — that releases TiptapEditor's
+  // focused-guard so the new note's content actually loads (the blur from
+  // clicking a div isn't guaranteed across browsers).
+  const editorRef = useRef<Editor | null>(null);
+
+  // Resolve the active note: prefer the server's value, then our pending id,
+  // then fall back to the first note (covers the case where active_note_id
+  // points at a deleted note before the next broadcast).
+  const resolvedActiveId = useMemo(() => {
+    if (storeActiveId && notes[storeActiveId]) return storeActiveId;
+    if (pendingId.current && notes[pendingId.current]) return pendingId.current;
+    return notesForSession[0]?.id ?? null;
+  }, [storeActiveId, notes, notesForSession]);
+
+  // Clear the optimistic id once the store has caught up.
+  useEffect(() => {
+    if (pendingId.current && storeActiveId === pendingId.current) {
+      pendingId.current = null;
+    }
+  }, [storeActiveId]);
+
+  const activeNote = resolvedActiveId ? notes[resolvedActiveId] ?? null : null;
+
+  // 300ms debounce mirroring the prior NotesPanel — every keystroke schedules
+  // a single content update for whatever note id the keystroke belonged to.
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  useEffect(() => {
-    if (!focused.current) setValue(content);
-  }, [content]);
-
-  const onChange = (next: string) => {
-    setValue(next);
+  const sendContent = (noteId: string, content: string) => {
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => sendMessage({ type: "note:update", sessionId, content: next }), 300);
+    timer.current = setTimeout(
+      () => sendMessage({ type: "note:update", noteId, content }),
+      300,
+    );
   };
 
-  const chars = value.length;
-  const words = value.trim() ? value.trim().split(/\s+/).length : 0;
+  const handleChange = (markdown: string) => {
+    // No active note yet → mint one, send create + the first content update
+    // in one breath. Subsequent keystrokes route through the normal path.
+    if (!activeNote && !pendingId.current) {
+      // Don't create a note for an empty editor (e.g. tiptap initialisation
+      // noise that yields "" — wait for actual content).
+      if (!markdown.trim()) return;
+      const id = uuid();
+      pendingId.current = id;
+      sendMessage({ type: "note:create", sessionId, id });
+      sendContent(id, markdown);
+      return;
+    }
+    // Prefer pendingId so keystrokes between "+ New note" click and the
+    // server's broadcast route to the just-created note, not the old active one.
+    const targetId = pendingId.current ?? activeNote?.id;
+    if (!targetId) return;
+    sendContent(targetId, markdown);
+  };
+
+  const onCreate = () => {
+    const id = uuid();
+    pendingId.current = id;
+    // Drop editor focus so its content-sync effect picks up the new empty note
+    // when the broadcast lands instead of holding the previous note's content.
+    editorRef.current?.commands.blur();
+    sendMessage({ type: "note:create", sessionId, id });
+  };
+
+  const onSwitch = (noteId: string) => {
+    if (noteId === resolvedActiveId) return;
+    editorRef.current?.commands.blur();
+    sendMessage({ type: "note:setActive", sessionId, noteId });
+  };
+
+  const onDelete = (noteId: string) => {
+    sendMessage({ type: "note:delete", noteId });
+  };
+
+  const onRename = (noteId: string, title: string) => {
+    sendMessage({ type: "note:update", noteId, title });
+  };
+
+  const editorContent = activeNote?.content ?? "";
+  const showList = notesForSession.length >= 2;
+  const chars = editorContent.length;
+  const words = editorContent.trim() ? editorContent.trim().split(/\s+/).length : 0;
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] text-xs">
-        <span className="text-[var(--muted)]">
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] text-xs shrink-0">
+        <span className="text-[var(--muted)] truncate">
           For session: <span className="font-semibold text-[var(--text)]">{label}</span>
         </span>
+        <button
+          onClick={onCreate}
+          className="flex items-center gap-1 text-[var(--muted)] hover:text-[var(--text)] shrink-0"
+          title="New note"
+        >
+          <Plus size={14} /> New
+        </button>
       </div>
 
-      <textarea
-        value={value}
-        onFocus={() => (focused.current = true)}
-        onBlur={() => (focused.current = false)}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Write a note…"
-        className="flex-1 resize-none bg-[var(--bg)] p-3 mono text-sm text-[var(--text)] outline-none"
-      />
+      {showList && (
+        <div className="px-2 py-2 border-b border-[var(--border)] space-y-0.5 max-h-48 overflow-y-auto shrink-0">
+          {notesForSession.map((n) => {
+            const active = n.id === resolvedActiveId;
+            return (
+              <div
+                key={n.id}
+                onClick={() => onSwitch(n.id)}
+                className={`group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-sm ${
+                  active
+                    ? "bg-[var(--panel)] border border-[var(--border-2)] text-[var(--text)] font-medium shadow-sm"
+                    : "border border-transparent text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                }`}
+              >
+                <EditableLabel
+                  value={n.title}
+                  onCommit={(v) => onRename(n.id, v)}
+                  className="truncate flex-1"
+                  bubble
+                />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(n.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-[var(--faint)] hover:text-red-400 shrink-0"
+                  title="Delete note"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-      <div className="flex items-center px-3 h-10 border-t border-[var(--border)] mono text-[11px] text-[var(--faint)]">
+      <div className="flex-1 min-h-0">
+        <TiptapEditor
+          content={editorContent}
+          onChange={handleChange}
+          placeholder={activeNote ? "Write…" : "Write a note…"}
+          editorRef={editorRef}
+        />
+      </div>
+
+      <div className="flex items-center px-3 h-10 border-t border-[var(--border)] mono text-[11px] text-[var(--faint)] shrink-0">
         <span>
           {words} word(s) · {chars} char(s)
         </span>

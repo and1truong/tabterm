@@ -35,11 +35,19 @@ export function Terminal({ sessionId }: { sessionId: string }) {
   const [conn, setConn] = useState<ConnState>("connecting");
   const theme = useStore((s) => s.theme);
   const termTheme = useStore((s) => s.termTheme);
+  const focusEpoch = useStore((s) => s.focusTerminalEpoch);
 
   // Re-apply the xterm color theme when the app theme or preset changes.
   useEffect(() => {
     if (termRef.current) termRef.current.options.theme = xtermTheme(TERM_THEMES[termTheme] ?? {});
   }, [theme, termTheme]);
+
+  // External focus request (e.g. command palette jump). Only the mounted
+  // Terminal for the active session sees this, so no sessionId check needed.
+  useEffect(() => {
+    if (focusEpoch === 0) return;
+    requestAnimationFrame(() => termRef.current?.focus());
+  }, [focusEpoch]);
 
   useEffect(() => {
     const host = hostRef.current;

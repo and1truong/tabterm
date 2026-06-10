@@ -65,14 +65,27 @@ export interface Session {
   // null = open; unix timestamp = soft-closed (hidden from sidebar, viewable in
   // the closed-sessions list, notes + AI history preserved).
   closedAt: number | null;
+  // Which note is shown in the NotesPanel for this session. Persisted so the
+  // panel restores to the same note across reloads and server restarts. null
+  // when the session has no notes yet.
+  activeNoteId: string | null;
   // Absent on persisted records; populated at runtime from the status tracker.
   status?: SessionStatus;
 }
 
-// One note per session. Keyed by sessionId in AppState.notes.
+// A markdown note belonging to a session. A session can have many; the active
+// one is referenced by Session.activeNoteId. Keyed by `id` in AppState.notes.
 export interface Note {
+  id: string;
   sessionId: string;
+  title: string;
   content: string;
+  // While true the server keeps `title` in sync with the first non-empty line
+  // of `content` (truncated). Flipped to false the first time the user renames
+  // the note manually.
+  titleAutoDerived: boolean;
+  position: number;
+  createdAt: number;
   updatedAt: number;
 }
 
@@ -121,4 +134,12 @@ export type ClientMessage =
   // top-level list of `groupId | sessionId`; `groups` maps each groupId to its
   // ordered child session ids. The server derives groupId/position from this.
   | { type: "layout"; primaryTabId: string; order: string[]; groups: Record<string, string[]> }
-  | { type: "note:update"; sessionId: string; content: string };
+  // Create a new note for a session. `id` is optional — clients usually mint
+  // one so the local UI can switch to it without waiting for the broadcast.
+  | { type: "note:create"; sessionId: string; id?: string }
+  // Update a note's content, title, or both. When `title` is sent the server
+  // also flips `titleAutoDerived = false` so subsequent content edits don't
+  // overwrite the user's chosen title.
+  | { type: "note:update"; noteId: string; content?: string; title?: string }
+  | { type: "note:delete"; noteId: string }
+  | { type: "note:setActive"; sessionId: string; noteId: string };
