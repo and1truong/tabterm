@@ -44,28 +44,29 @@ async function shellCommand(): Promise<string[]> {
   return ["bash", "--rcfile", await sessionInitPath(), "-i"];
 }
 
-// Per-session marker dir for claude-kind sessions. Presence of a session's
-// marker file means claude has been launched at least once in that session, so
-// subsequent spawns use `--continue` and the conversation resumes across
-// browser-tab close, sidebar reopen, and server restart.
+// Per-session marker dir for claude/fable-kind sessions. Presence of a session's
+// marker file means the AI command has been launched at least once in that
+// session, so subsequent spawns use `--continue` and the conversation resumes
+// across browser-tab close, sidebar reopen, and server restart.
 const MARKER_DIR = join(homedir(), ".cache/tabterm/sessions");
 
 // Env injected on top of process.env for every session. The TABTERM_* vars let
 // shell hooks / claude hooks call back into the server (POST /api/sessions/:id/
-// status). For "claude" kind we additionally set STARTUP_COMMAND/MARKER so
-// session-init.bash launches the configured claude binary (plain on first run,
+// status). For AI kinds we additionally set STARTUP_COMMAND/MARKER so
+// session-init.bash launches the configured binary (plain on first run,
 // --continue thereafter).
 function sessionEnv(sessionId: string, kind: SessionKind): Record<string, string> {
   const base = {
     TABTERM_SESSION_ID: sessionId,
     TABTERM_BASE_URL: `http://127.0.0.1:${config.port}`,
   };
-  if (kind !== "claude") return base;
+  if (kind === "shell") return base;
+  const command = kind === "fable" ? config.fableCommand : config.claudeCommand;
   mkdirSync(MARKER_DIR, { recursive: true });
   return {
     ...base,
-    STARTUP_COMMAND: config.claudeCommand,
-    STARTUP_MARKER: join(MARKER_DIR, `${sessionId}.claude-started`),
+    STARTUP_COMMAND: command,
+    STARTUP_MARKER: join(MARKER_DIR, `${sessionId}.${kind}-started`),
   };
 }
 

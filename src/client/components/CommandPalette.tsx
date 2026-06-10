@@ -9,17 +9,18 @@ import { sendMessage } from "../ws.ts";
 type Entry =
   | { kind: "session"; id: string; label: string; session: Session; workspaceLabel: string; inActive: boolean }
   | { kind: "primaryTab"; id: string; label: string; tab: PrimaryTab }
-  | { kind: "action"; id: string; label: string; run: () => void; icon: "plus-shell" | "plus-claude" | "archive-sessions" | "archive-tabs" };
+  | { kind: "action"; id: string; label: string; run: () => void; icon: "plus-shell" | "plus-opus" | "plus-fable" | "archive-sessions" | "archive-tabs" };
 
 function iconFor(entry: Entry) {
   if (entry.kind === "session") {
-    return entry.session.kind === "claude"
-      ? <Sparkles size={14} className="text-[var(--orange)]" />
-      : <TerminalSquare size={14} className="text-[var(--muted)]" />;
+    if (entry.session.kind === "claude") return <Sparkles size={14} className="text-[var(--orange)]" />;
+    if (entry.session.kind === "fable") return <Sparkles size={14} className="text-violet-400" />;
+    return <TerminalSquare size={14} className="text-[var(--muted)]" />;
   }
   if (entry.kind === "primaryTab") return <Layers size={14} className="text-[var(--muted)]" />;
   if (entry.icon === "plus-shell") return <Plus size={14} className="text-[var(--muted)]" />;
-  if (entry.icon === "plus-claude") return <Sparkles size={14} className="text-[var(--orange)]" />;
+  if (entry.icon === "plus-opus") return <Sparkles size={14} className="text-[var(--orange)]" />;
+  if (entry.icon === "plus-fable") return <Sparkles size={14} className="text-violet-400" />;
   return <Archive size={14} className="text-[var(--muted)]" />;
 }
 
@@ -56,7 +57,8 @@ export function CommandPalette() {
 
   const addSession = (kind: SessionKind) => {
     if (!activePrimaryTabId) return;
-    const label = kind === "claude" ? `Claude ${sessionCountInActive + 1}` : `Session ${sessionCountInActive + 1}`;
+    const prefix = kind === "claude" ? "Opus" : kind === "fable" ? "Fable" : "Session";
+    const label = `${prefix} ${sessionCountInActive + 1}`;
     const id = uuid();
     requestFocus(id);
     sendMessage({ type: "session:create", id, primaryTabId: activePrimaryTabId, label, kind });
@@ -139,10 +141,17 @@ export function CommandPalette() {
       });
       out.push({
         kind: "action",
-        id: "new-claude",
-        label: "New Claude session",
-        icon: "plus-claude",
+        id: "new-opus",
+        label: "New Opus session",
+        icon: "plus-opus",
         run: () => addSession("claude"),
+      });
+      out.push({
+        kind: "action",
+        id: "new-fable",
+        label: "New Fable session",
+        icon: "plus-fable",
+        run: () => addSession("fable"),
       });
     }
     out.push({

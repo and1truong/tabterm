@@ -151,7 +151,7 @@ const toSession = (r: SessionRow): Session => ({
   cwd: r.cwd,
   gottyPort: r.gotty_port,
   position: r.position,
-  kind: (r.kind === "claude" ? "claude" : "shell") as SessionKind,
+  kind: ((r.kind === "claude" || r.kind === "fable") ? r.kind : "shell") as SessionKind,
   closedAt: r.closed_at,
 });
 const toNote = (r: NoteRow): Note => ({
@@ -525,6 +525,6 @@ export function sessionMeta(
   return {
     label: r.label,
     cwd: r.cwd,
-    kind: (r.kind === "claude" ? "claude" : "shell") as SessionKind,
+    kind: ((r.kind === "claude" || r.kind === "fable") ? r.kind : "shell") as SessionKind,
   };
 }

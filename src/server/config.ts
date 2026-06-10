@@ -14,6 +14,8 @@ interface FileConfig {
   // Command to launch for "claude" sessions. Defaults to "claude"; point at the
   // absolute path of your binary if it lives outside $PATH (e.g. "~/bin/opus").
   claudeCommand?: string;
+  // Command to launch for "fable" sessions. Defaults to "~/bin/fable".
+  fableCommand?: string;
 }
 
 const HOME = homedir();
@@ -50,4 +52,5 @@ export const config = {
   gottyBasePort: file.gottyBasePort ?? 4001,
   sessionInit: file.sessionInit,
   claudeCommand: file.claudeCommand ? expandHome(file.claudeCommand) : "claude",
+  fableCommand: expandHome(file.fableCommand ?? "~/bin/fable"),
 };

@@ -34,11 +34,13 @@ export interface Group {
 }
 
 // "shell" = plain bash. "claude" = launch the server's configured claudeCommand
-// (e.g. ~/bin/opus) on entry; on exit the user is dropped back at bash.
-export type SessionKind = "shell" | "claude";
+// (e.g. ~/bin/opus) on entry; "fable" = launch fableCommand (~/bin/fable). On
+// exit the user is dropped back at bash. Both AI kinds share the claude-style
+// startup-marker / --continue resume machinery.
+export type SessionKind = "shell" | "claude" | "fable";
 
 // Runtime liveness signal. Not persisted: starts undefined (treated as "idle")
-// on boot and changes via OSC-133 markers (shell) or claude hooks (claude).
+// on boot and changes via OSC-133 markers (shell) or claude hooks (claude/fable).
 export type SessionStatus = "running" | "idle";
 
 export interface Session {

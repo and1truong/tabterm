@@ -66,7 +66,8 @@ export function Sidebar() {
   };
   const addSession = (groupId?: string, kind: SessionKind = "shell") => {
     const count = Object.values(sessions).filter((s) => s.primaryTabId === tabId).length;
-    const label = kind === "claude" ? `Claude ${count + 1}` : `Session ${count + 1}`;
+    const prefix = kind === "claude" ? "Opus" : kind === "fable" ? "Fable" : "Session";
+    const label = `${prefix} ${count + 1}`;
     const id = uuid();
     requestFocus(id);
     sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label, kind });
@@ -245,7 +246,14 @@ export function Sidebar() {
           className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
           title="Launch the configured claude command (claudeCommand in config, default 'claude')"
         >
-          <Sparkles size={14} className="text-[var(--orange)]" /> Claude session
+          <Sparkles size={14} className="text-[var(--orange)]" /> Opus session
+        </button>
+        <button
+          onClick={() => addSession(undefined, "fable")}
+          className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
+          title="Launch ~/bin/fable (fableCommand in config)"
+        >
+          <Sparkles size={14} className="text-violet-400" /> Fable session
         </button>
       </div>
     </aside>
