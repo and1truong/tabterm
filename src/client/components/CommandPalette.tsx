@@ -7,7 +7,18 @@ import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
 
 type Entry =
-  | { kind: "session"; id: string; label: string; session: Session; workspaceLabel: string; inActive: boolean }
+  | {
+      kind: "session";
+      id: string;
+      label: string;
+      session: Session;
+      workspaceLabel: string;
+      inActive: boolean;
+      // True only for entries rendered in the top "Needs attention" section.
+      // Used to key React rows and to drive the section header.
+      inAttention?: boolean;
+      hasAttention: boolean;
+    }
   | { kind: "primaryTab"; id: string; label: string; tab: PrimaryTab }
   | { kind: "action"; id: string; label: string; run: () => void; icon: "plus-shell" | "archive-sessions" | "archive-tabs" }
   | { kind: "action-launch"; id: string; label: string; run: () => void; cmd: SessionCommand };
@@ -40,6 +51,7 @@ export function CommandPalette() {
   const sessions = useStore(useShallow((s) => s.sessions));
   const order = useStore(useShallow((s) => s.order));
   const sessionCommands = useStore((s) => s.sessionCommands);
+  const attention = useStore((s) => s.attention);
   const sessionCountInActive = useStore((s) =>
     Object.values(s.sessions).filter((sess) => sess.primaryTabId === s.activePrimaryTabId).length,
   );
@@ -83,6 +95,25 @@ export function CommandPalette() {
     const tabLabel: Record<string, string> = {};
     for (const t of openTabs) tabLabel[t.id] = t.label;
 
+    // Top: every attention-pending session across workspaces. Listed here as a
+    // shortcut row (inAttention=true) and also kept in its normal slot below;
+    // `filtered` decides which view wins based on whether the user is searching.
+    for (const sid of attention) {
+      const s = sessions[sid];
+      if (s && s.closedAt == null) {
+        out.push({
+          kind: "session",
+          id: s.id,
+          label: s.label,
+          session: s,
+          workspaceLabel: tabLabel[s.primaryTabId] ?? "",
+          inActive: s.primaryTabId === activePrimaryTabId,
+          inAttention: true,
+          hasAttention: true,
+        });
+      }
+    }
+
     // Sessions in the active workspace first, in sidebar order.
     if (activePrimaryTabId) {
       const ord = order[activePrimaryTabId] ?? [];
@@ -97,6 +128,7 @@ export function CommandPalette() {
             session: s,
             workspaceLabel: tabLabel[activePrimaryTabId] ?? "",
             inActive: true,
+            hasAttention: attention.has(s.id),
           });
           seen.add(s.id);
         }
@@ -111,6 +143,7 @@ export function CommandPalette() {
             session: s,
             workspaceLabel: tabLabel[activePrimaryTabId] ?? "",
             inActive: true,
+            hasAttention: attention.has(s.id),
           });
         }
       }
@@ -124,13 +157,13 @@ export function CommandPalette() {
       for (const ref of ord) {
         const s = sessions[ref];
         if (s && s.closedAt == null && s.primaryTabId === t.id) {
-          out.push({ kind: "session", id: s.id, label: s.label, session: s, workspaceLabel: t.label, inActive: false });
+          out.push({ kind: "session", id: s.id, label: s.label, session: s, workspaceLabel: t.label, inActive: false, hasAttention: attention.has(s.id) });
           seen.add(s.id);
         }
       }
       for (const s of Object.values(sessions)) {
         if (s.closedAt == null && s.primaryTabId === t.id && !seen.has(s.id)) {
-          out.push({ kind: "session", id: s.id, label: s.label, session: s, workspaceLabel: t.label, inActive: false });
+          out.push({ kind: "session", id: s.id, label: s.label, session: s, workspaceLabel: t.label, inActive: false, hasAttention: attention.has(s.id) });
         }
       }
     }
@@ -176,17 +209,27 @@ export function CommandPalette() {
 
     return out;
     // `addSession` is stable enough via closure — its inputs are tracked above.
-  }, [primaryTabs, sessions, order, activePrimaryTabId, sessionCommands, sessionCountInActive, toggleClosedSessions, toggleClosedTabs]);
+  }, [primaryTabs, sessions, order, activePrimaryTabId, sessionCommands, sessionCountInActive, attention, toggleClosedSessions, toggleClosedTabs]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return entries;
+    if (!q) {
+      // Empty query: keep the "Needs attention" section, and drop the duplicate
+      // normal-slot rows for sessions surfaced there.
+      return entries.filter((e) => {
+        if (e.kind === "session" && !e.inAttention && attention.has(e.session.id)) return false;
+        return true;
+      });
+    }
+    // Filtering: drop the special attention section entirely; the dot still
+    // rides along on matching rows.
     return entries.filter((e) => {
+      if (e.kind === "session" && e.inAttention) return false;
       if (e.label.toLowerCase().includes(q)) return true;
       if (e.kind === "session" && e.workspaceLabel.toLowerCase().includes(q)) return true;
       return false;
     });
-  }, [entries, query]);
+  }, [entries, query, attention]);
 
   useEffect(() => {
     if (selected >= filtered.length) setSelected(0);
@@ -241,19 +284,19 @@ export function CommandPalette() {
   // Section headers are derived from entry kind/inActive so we don't have to
   // pre-split into buckets — keeps the index stable for keyboard nav.
   const sectionFor = (entry: Entry, prev: Entry | undefined): string | null => {
-    const cur = entry.kind === "session"
-      ? (entry.inActive ? "this" : `other:${entry.workspaceLabel}`)
-      : entry.kind === "primaryTab"
-        ? "workspaces"
-        : "actions";
-    const prv = !prev ? null : prev.kind === "session"
-      ? (prev.inActive ? "this" : `other:${prev.workspaceLabel}`)
-      : prev.kind === "primaryTab"
-        ? "workspaces"
-        : "actions";
+    const keyOf = (e: Entry | undefined) => {
+      if (!e) return null;
+      if (e.kind === "session" && e.inAttention) return "attention";
+      if (e.kind === "session") return e.inActive ? "this" : `other:${e.workspaceLabel}`;
+      if (e.kind === "primaryTab") return "workspaces";
+      return "actions";
+    };
+    const cur = keyOf(entry);
+    const prv = keyOf(prev);
     if (cur === prv) return null;
+    if (cur === "attention") return "Needs attention";
     if (cur === "this") return "This workspace";
-    if (cur.startsWith("other:")) return cur.slice("other:".length);
+    if (cur && cur.startsWith("other:")) return cur.slice("other:".length);
     if (cur === "workspaces") return "Workspaces";
     return "Actions";
   };
@@ -287,7 +330,7 @@ export function CommandPalette() {
             const header = sectionFor(entry, filtered[idx - 1]);
             const isSel = idx === selected;
             return (
-              <div key={`${entry.kind}:${entry.id}`}>
+              <div key={`${entry.kind}:${entry.kind === "session" && entry.inAttention ? "att:" : ""}${entry.id}`}>
                 {header && (
                   <div className="px-4 pt-3 pb-1 text-xs uppercase tracking-wide text-[var(--faint)]">
                     {header}
@@ -305,7 +348,14 @@ export function CommandPalette() {
                 >
                   <span className="shrink-0">{iconFor(entry, commandsByKind)}</span>
                   <span className="truncate flex-1">{entry.label}</span>
-                  {entry.kind === "session" && !entry.inActive && (
+                  {entry.kind === "session" && entry.hasAttention && (
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0 animate-pulse"
+                      style={{ background: "var(--orange)" }}
+                      title="Claude wants your attention"
+                    />
+                  )}
+                  {entry.kind === "session" && (!entry.inActive || entry.inAttention) && entry.workspaceLabel && (
                     <span className="text-xs text-[var(--faint)] mono truncate max-w-[40%]">
                       {entry.workspaceLabel}
                     </span>
