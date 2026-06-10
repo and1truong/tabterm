@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { getSession, loadState } from "./db.ts";
 import { setStatus } from "./status.ts";
+import { broadcastNotify } from "./ws.ts";
 
 // Minimal REST surface for v0.1. The app's live data flows over the WS;
 // these endpoints are for health checks and non-WS state inspection.
@@ -76,6 +77,27 @@ export async function handleStatusUpdate(req: Request, sessionId: string): Promi
     return Response.json({ error: "status must be 'running' or 'idle'" }, { status: 400 });
   }
   setStatus(sessionId, next);
+  return new Response(null, { status: 204 });
+}
+
+// Ephemeral attention ping. Posted by the claude Notification hook, which pipes
+// its stdin (Claude's hook payload, including `message`) straight here. We pull
+// the message out and broadcast it; the client decides whether to badge/notify.
+export async function handleNotify(req: Request, sessionId: string): Promise<Response> {
+  if (!getSession(sessionId)) {
+    return Response.json({ error: "unknown session" }, { status: 404 });
+  }
+  let body: { message?: unknown };
+  try {
+    body = (await req.json()) as { message?: unknown };
+  } catch {
+    return Response.json({ error: "invalid json" }, { status: 400 });
+  }
+  const message =
+    typeof body.message === "string" && body.message.trim()
+      ? body.message.trim()
+      : "Claude needs your attention";
+  broadcastNotify(sessionId, message);
   return new Response(null, { status: 204 });
 }
 

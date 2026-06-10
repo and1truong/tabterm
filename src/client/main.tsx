@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./components/App.tsx";
 import { getInitialTheme, applyTheme } from "./theme.ts";
+import { useStore } from "./store.ts";
 import { connect } from "./ws.ts";
 import "./index.css";
 
@@ -11,6 +12,20 @@ connect();
 window.addEventListener("beforeunload", (e) => {
   e.preventDefault();
 });
+
+// Returning to the window while a badged session is already on screen means the
+// user has effectively seen it — clear that one badge (others stay).
+const clearActiveAttention = () => {
+  if (!document.hasFocus()) return;
+  const { activeSessionId, attention } = useStore.getState();
+  if (activeSessionId && attention.has(activeSessionId)) {
+    const next = new Set(attention);
+    next.delete(activeSessionId);
+    useStore.setState({ attention: next });
+  }
+};
+window.addEventListener("focus", clearActiveAttention);
+document.addEventListener("visibilitychange", clearActiveAttention);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

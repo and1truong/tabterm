@@ -9,6 +9,7 @@ import type {
   SessionCommand,
 } from "../shared/types.ts";
 import { applyTheme, getInitialTheme, type Theme } from "./theme.ts";
+import { fireNotification } from "./notifications.ts";
 
 type ConnStatus = "connecting" | "open" | "closed";
 
@@ -22,6 +23,9 @@ interface StoreState extends AppState {
   // Set when this device creates a session; cleared once the matching session
   // patch arrives and focus is applied. Keeps focus creator-only.
   pendingFocusSessionId: string | null;
+  // SessionIds that pinged for attention (claude Notification hook) and haven't
+  // been viewed since. Drives the sidebar/tab badges. Cleared on activation.
+  attention: Set<string>;
   theme: Theme;
   showNotes: boolean;
   showClosedSessions: boolean;
@@ -45,6 +49,16 @@ interface StoreState extends AppState {
 
 const empty: AppState = { primaryTabs: {}, groups: {}, sessions: {}, order: {}, notes: {} };
 
+// Return the attention set with `id` removed. Reuses the existing reference when
+// there's nothing to remove, so activation doesn't churn unrelated subscribers.
+function cleared(get: () => StoreState, id: string | null): Set<string> {
+  const cur = get().attention;
+  if (!id || !cur.has(id)) return cur;
+  const next = new Set(cur);
+  next.delete(id);
+  return next;
+}
+
 // Look up the remembered session for a tab and return it only if it still
 // points to an open session in that workspace; otherwise null.
 function restoreFor(get: () => StoreState, tabId: string | null): string | null {
@@ -63,6 +77,7 @@ export const useStore = create<StoreState>((set, get) => ({
   activeSessionId: null,
   lastSessionByTab: {},
   pendingFocusSessionId: null,
+  attention: new Set(),
   theme: getInitialTheme(),
   showNotes: true,
   showClosedSessions: false,
@@ -73,13 +88,15 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setStatus: (status) => set({ status }),
 
-  setActivePrimaryTab: (id) =>
-    set({ activePrimaryTabId: id, activeSessionId: restoreFor(get, id) }),
+  setActivePrimaryTab: (id) => {
+    const restored = restoreFor(get, id);
+    set({ activePrimaryTabId: id, activeSessionId: restored, attention: cleared(get, restored) });
+  },
   setActiveSession: (id) => {
     const tabId = get().activePrimaryTabId;
     const next = { ...get().lastSessionByTab };
     if (id && tabId) next[tabId] = id;
-    set({ activeSessionId: id, lastSessionByTab: next });
+    set({ activeSessionId: id, lastSessionByTab: next, attention: cleared(get, id) });
   },
   requestFocus: (id) => set({ pendingFocusSessionId: id }),
   toggleTheme: () => {
@@ -106,6 +123,29 @@ export const useStore = create<StoreState>((set, get) => ({
         activePrimaryTabId,
         activeSessionId: get().activeSessionId ?? restoreFor(get, activePrimaryTabId),
       });
+      return;
+    }
+
+    if (msg.type === "notify") {
+      const session = get().sessions[msg.sessionId];
+      if (!session) return;
+      // Already looking at this exact session in a focused window → nothing to do.
+      const focusedHere =
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        get().activeSessionId === msg.sessionId;
+      if (focusedHere) return;
+      // Badge it (always), so a different-session/different-device view still cues.
+      const attention = new Set(get().attention);
+      attention.add(msg.sessionId);
+      set({ attention });
+      // OS notification only when the window itself isn't focused.
+      if (document.hidden || !document.hasFocus()) {
+        fireNotification(session.label, msg.message, msg.sessionId, () => {
+          get().setActivePrimaryTab(session.primaryTabId);
+          get().setActiveSession(msg.sessionId);
+        });
+      }
       return;
     }
 

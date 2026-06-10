@@ -92,7 +92,11 @@ export type Entity = "primaryTab" | "group" | "session" | "order" | "note";
 export type ServerMessage =
   | { type: "init"; state: AppState; sessionCommands: SessionCommand[] }
   | { type: "patch"; entity: Entity; op: "set"; data: unknown }
-  | { type: "patch"; entity: Entity; op: "delete"; id: string };
+  | { type: "patch"; entity: Entity; op: "delete"; id: string }
+  // Ephemeral attention ping (not persisted). Emitted when a claude-backed
+  // session fires a Notification hook; the client badges the session and may
+  // raise a browser notification unless that session is already focused.
+  | { type: "notify"; sessionId: string; message: string };
 
 // Client → Server
 export type ClientMessage =

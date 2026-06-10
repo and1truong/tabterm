@@ -6,6 +6,7 @@ import { buildTree, intoGroup, toTop, type Tree } from "../layout.ts";
 import { useStore } from "../store.ts";
 import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
+import { ensureNotifyPermission } from "../notifications.ts";
 import { EditableLabel } from "./EditableLabel.tsx";
 
 const COLOR_HEX: Record<GroupColor, string> = {
@@ -27,6 +28,7 @@ export function Sidebar() {
   const sessions = useStore((s) => s.sessions);
   const order = useStore((s) => s.order);
   const activeSessionId = useStore((s) => s.activeSessionId);
+  const attention = useStore((s) => s.attention);
   const setActiveSession = useStore((s) => s.setActiveSession);
   const requestFocus = useStore((s) => s.requestFocus);
   const sessionCommands = useStore((s) => s.sessionCommands);
@@ -129,7 +131,10 @@ export function Sidebar() {
         onDragEnd={onDragEnd}
         onDragOver={allowDrop(overKey)}
         onDrop={onDrop}
-        onClick={() => setActiveSession(id)}
+        onClick={() => {
+          ensureNotifyPermission();
+          setActiveSession(id);
+        }}
         className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm ${insertBar(
           overKey,
         )} ${
@@ -147,6 +152,13 @@ export function Sidebar() {
           onCommit={(v) => rename("session", id, v)}
           className={`truncate flex-1 ${s.status === "running" ? "" : "italic opacity-60"}`}
         />
+        {attention.has(id) && (
+          <span
+            className="inline-block w-2 h-2 rounded-full shrink-0 animate-pulse"
+            style={{ background: "var(--orange)" }}
+            title="Claude wants your attention"
+          />
+        )}
         <button
           className="opacity-0 group-hover:opacity-100 text-[var(--faint)] hover:text-red-400"
           onClick={(e) => {

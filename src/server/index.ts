@@ -6,7 +6,7 @@ import { seedIfEmpty } from "./db.ts";
 import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
 import { killAll, reapOrphans, respawnAll, startHealthMonitor } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
-import { handleApi, handleStatusUpdate, handleUpload } from "./routes.ts";
+import { handleApi, handleNotify, handleStatusUpdate, handleUpload } from "./routes.ts";
 import * as appws from "./ws.ts";
 
 const PORT = config.port;
@@ -74,6 +74,10 @@ const server = Bun.serve({
     // POST /api/sessions/:id/status — runtime liveness signal (claude hooks etc).
     const statusMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/status$/);
     if (statusMatch && req.method === "POST") return handleStatusUpdate(req, statusMatch[1]);
+
+    // POST /api/sessions/:id/notify — ephemeral attention ping (claude Notification hook).
+    const notifyMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/notify$/);
+    if (notifyMatch && req.method === "POST") return handleNotify(req, notifyMatch[1]);
 
     const api = url.pathname.startsWith("/api/") ? handleApi(url) : null;
     if (api) return api;

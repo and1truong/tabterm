@@ -55,6 +55,18 @@ export function PrimaryTabs() {
     }),
   );
 
+  // Tabs with at least one session waiting for attention get a dot on the pill.
+  const attentionTabs = useStore(
+    useShallow((s) => {
+      const set: Record<string, true> = {};
+      for (const sid of s.attention) {
+        const sess = s.sessions[sid];
+        if (sess && sess.closedAt == null) set[sess.primaryTabId] = true;
+      }
+      return set;
+    }),
+  );
+
   const hideTab = (id: string, label: string) => {
     const openSessions = sessionCountByTab[id] ?? 0;
     const msg = openSessions > 0
@@ -94,6 +106,13 @@ export function PrimaryTabs() {
                 }
               />
             </button>
+            {attentionTabs[t.id] && (
+              <span
+                className="w-2 h-2 mr-1 rounded-full shrink-0 animate-pulse"
+                style={{ background: "var(--orange)" }}
+                title="Claude wants your attention"
+              />
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();

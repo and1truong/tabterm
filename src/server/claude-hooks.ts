@@ -8,6 +8,7 @@ import { join } from "node:path";
 // customized hooks are preserved across upgrades.
 
 const TAG = "__tabterm_status_hook__";
+const NOTIFY_TAG = "__tabterm_notify_hook__";
 
 function curlCommand(status: "running" | "idle"): string {
   // The hook fires inside the claude process, which inherits TABTERM_BASE_URL
@@ -22,6 +23,18 @@ function curlCommand(status: "running" | "idle"): string {
   );
 }
 
+function notifyCommand(): string {
+  // Notification hooks receive Claude's event JSON (including `message`) on
+  // stdin; `--data-binary @-` forwards it verbatim so the server can pull the
+  // message out — no jq dependency. Same env-gating + `|| true` as above; the
+  // POST is a harmless no-op outside tabterm (TABTERM_* unset).
+  return (
+    `curl -fsS -m 1 -X POST -H 'Content-Type: application/json' --data-binary @- ` +
+    `"$TABTERM_BASE_URL/api/sessions/$TABTERM_SESSION_ID/notify" >/dev/null 2>&1 || true` +
+    ` # ${NOTIFY_TAG}`
+  );
+}
+
 interface HookEntry { type: string; command: string }
 interface HookGroup { hooks: HookEntry[] }
 interface ClaudeSettings {
@@ -29,12 +42,12 @@ interface ClaudeSettings {
   [k: string]: unknown;
 }
 
-function ensureHook(settings: ClaudeSettings, event: string, command: string): boolean {
+function ensureHook(settings: ClaudeSettings, event: string, command: string, marker: string): boolean {
   settings.hooks ??= {};
   settings.hooks[event] ??= [];
   for (const group of settings.hooks[event]) {
     for (const h of group.hooks ?? []) {
-      if (h.command?.includes(TAG)) return false;
+      if (h.command?.includes(marker)) return false;
     }
   }
   settings.hooks[event].push({ hooks: [{ type: "command", command }] });
@@ -55,11 +68,12 @@ export function ensureClaudeHooks(): void {
     }
   }
 
-  const a = ensureHook(settings, "UserPromptSubmit", curlCommand("running"));
-  const b = ensureHook(settings, "Stop", curlCommand("idle"));
-  if (!a && !b) return;
+  const a = ensureHook(settings, "UserPromptSubmit", curlCommand("running"), TAG);
+  const b = ensureHook(settings, "Stop", curlCommand("idle"), TAG);
+  const c = ensureHook(settings, "Notification", notifyCommand(), NOTIFY_TAG);
+  if (!a && !b && !c) return;
 
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
-  console.log(`[claude-hooks] installed UserPromptSubmit + Stop hooks at ${path}`);
+  console.log(`[claude-hooks] installed UserPromptSubmit + Stop + Notification hooks at ${path}`);
 }

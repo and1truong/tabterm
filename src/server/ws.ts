@@ -38,6 +38,12 @@ function setPatch(entity: Entity, data: unknown): ServerMessage {
   return { type: "patch", entity, op: "set", data };
 }
 
+// Fan an ephemeral attention ping out to every client. Called by the /notify
+// route (claude Notification hook). Not persisted — purely a live cue.
+export function broadcastNotify(sessionId: string, message: string): void {
+  broadcast({ type: "notify", sessionId, message });
+}
+
 setStatusBroadcaster((session) => broadcast(setPatch("session", session)));
 
 export function onOpen(ws: ServerWebSocket<unknown>): void {
