@@ -82,7 +82,6 @@ back to a sensible default.
 | `gottyBasePort` | `4001`                   | First port for dynamically-allocated GoTTY processes (one per session).                    |
 | `gottyBin`      | bundled binary           | Path to the GoTTY binary.                                                                  |
 | `sessionInit`   | _(none)_                 | Default honors your `$SHELL` (zsh or bash) with status/AI-startup hooks layered on. Set a path to use a custom bash rcfile, or `"off"` to launch a bare `$SHELL` with no injection. |
-| `claudeCommand` | `claude`                 | Command launched for "Claude session". Use an absolute path if it's outside `$PATH`.       |
 | `tmux`          | _(auto)_                 | Durable sessions run inside tmux when it's installed. Set to `"off"` to disable and use plain child-process shells (no cross-restart persistence). |
 | `sessionCommands` | `[]`                   | Extra launch-profile buttons in the sidebar. Each entry runs a command as a session. None by default (only a plain shell). |
 
