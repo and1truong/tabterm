@@ -1,7 +1,7 @@
 <h1 align="center">TabTerm</h1>
 
 <p align="center">
-  <em>A tabbed terminal workspace for your LAN — real shells, grouped sessions, live notes, every device in sync.</em>
+  <em>A tabbed terminal workspace for your LAN — real shells that survive restarts, grouped sessions, conflict-safe synced notes, every device in sync.</em>
 </p>
 
 <p align="center">
@@ -27,17 +27,22 @@ No login. No cloud. No external services. Just `bun start`.
 
 > Terminals are real PTYs (`vim`, `htop`, `ssh`, `git` — whatever) backed by
 > [GoTTY](https://github.com/sorenisanerd/gotty) subprocesses that TabTerm
-> spawns and proxies. The browser never talks to GoTTY directly.
+> spawns and proxies. The browser never talks to GoTTY directly. With `tmux`
+> installed, those shells run inside tmux so they (and whatever they're running)
+> **outlive a server restart or crash** — reconnect and you're right where you left off.
 
 ## Features
 
 - 🖥️ **Real shells in the browser** — one GoTTY-backed PTY per session, rendered with xterm.js (auto-fit, auto-reconnect).
 - 🗂️ **Nested workspaces** — primary tabs at the top, colored collapsible groups in the sidebar, drag-and-drop reordering.
-- 📝 **Per-session markdown notes** — multiple notes per session, auto-saved, render alongside the terminal.
+- 🐚 **Your shell** — sessions launch your `$SHELL` (zsh or bash) with prompt/status + AI-startup hooks layered on top, without touching your dotfiles.
+- 📝 **Per-session markdown notes** — multiple notes per session (Tiptap editor), live-synced across devices with **conflict-safe versioning** (optimistic concurrency: a stale edit is rejected with a *keep mine / take theirs* prompt instead of silently clobbering) and an **offline edit queue** that flushes on reconnect.
+- 🎨 **Customizable, synced terminal** — pick the terminal **font family, size, line-height, and theme** from the status-bar gear; choices persist and **sync to every connected device** (SQLite + WebSocket).
 - ⌘ **Command palette** — `⌘K` to jump to any session or workspace; sessions waiting on Claude get a ping.
 - 🔔 **Attention badges & desktop pings** — when a long-running agent finishes or needs you, the session lights up and the OS pops a notification.
 - 🔁 **Live multi-device sync** — every mutation broadcasts over WebSocket; open the same layout on your desktop and laptop and stay in sync.
 - 💾 **Persistent** — layout, groups, sessions, and notes live in SQLite (WAL); GoTTY processes are re-spawned automatically on restart.
+- ♻️ **Durable sessions (tmux)** — when `tmux` is installed, each session runs inside a tmux session, so your shells and running programs (`vim`, a build, `claude`) **survive a server restart or crash** — reconnect and they're still going. Falls back to plain shells when tmux is absent.
 - 🌗 **Light & dark** — themed terminal palettes that match the chrome.
 
 ## Quick start
@@ -60,6 +65,7 @@ bun start          # NODE_ENV=production: Bun serves the SPA + API on one port
 
 - [Bun](https://bun.sh) ≥ 1.1
 - GoTTY — fetched automatically via the `postinstall` script (`bun install`).
+- [tmux](https://github.com/tmux/tmux) ≥ 3.1 — **optional**. Enables durable sessions (programs survive a server restart). Without it, sessions work exactly as before but don't persist across restarts. Install via your package manager (`apt install tmux`, `brew install tmux`, …); not auto-installed.
 
 ## Configuration
 
@@ -77,6 +83,7 @@ back to a sensible default.
 | `gottyBin`      | bundled binary           | Path to the GoTTY binary.                                                                  |
 | `sessionInit`   | _(none)_                 | Default honors your `$SHELL` (zsh or bash) with status/AI-startup hooks layered on. Set a path to use a custom bash rcfile, or `"off"` to launch a bare `$SHELL` with no injection. |
 | `claudeCommand` | `claude`                 | Command launched for "Claude session". Use an absolute path if it's outside `$PATH`.       |
+| `tmux`          | _(auto)_                 | Durable sessions run inside tmux when it's installed. Set to `"off"` to disable and use plain child-process shells (no cross-restart persistence). |
 
 Paths support `~` expansion. Example `~/.config/tabterm.json`:
 
@@ -88,12 +95,28 @@ Paths support `~` expansion. Example `~/.config/tabterm.json`:
 }
 ```
 
+> Terminal **font** (family/size/line-height) and **theme** aren't in this file —
+> they're per-workspace settings you change live from the status-bar **gear**, and
+> they sync to every device.
+
+## Terminal settings & copy / paste
+
+- **Fonts & theme** — status-bar gear ⚙️ → font family, size, line-height, theme. Applied live, synced to all clients.
+- **Copy** — under tmux the scroll wheel drives tmux scrollback, so a plain drag is captured by tmux. To grab a **native selection for the OS clipboard**, hold a modifier while dragging, then copy:
+  - **macOS:** ⌥ Option + drag → ⌘C  (⌥ + double/triple-click selects word/line)
+  - **Linux / Windows:** Shift + drag → Ctrl+C
+- **Paste** — ⌘V / Ctrl+V (bracketed-paste aware).
+- **Scroll** — mouse wheel (tmux scrollback) or `prefix + [` for keyboard copy-mode.
+- **Clear** — ⌘⇧K wipes the viewport + scrollback (client-side; a running TUI repaints on its next refresh).
+
+> Why a modifier for copy: with `tmux` the multiplexer owns the screen (so the wheel can scroll), which means a bare drag goes to tmux. The modifier tells xterm.js to make a local browser selection instead.
+
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────┐
 │  Browser — React + Zustand + xterm.js            │
-│  - App WS:  session/group/note mutations         │
+│  - App WS:  session/group/note/settings sync     │
 │  - PTY WS:  /gotty/ws/:sessionId (per terminal)  │
 └───────────────────┬──────────────────────────────┘
                     │ HTTP + WS (one port)
@@ -102,18 +125,23 @@ Paths support `~` expansion. Example `~/.config/tabterm.json`:
 │  - Serves the SPA + REST /api/*                  │
 │  - App WS: broadcasts mutations to all clients   │
 │  - PTY WS proxy: /gotty/ws/:id → GoTTY process   │
-│  - Process manager: spawn/kill GoTTY per session │
+│  - Process mgr: spawn GoTTY per session; the      │
+│    shell lives in a durable tmux session          │
 └──────┬────────────────────┬──────────────────────┘
-       │ bun:sqlite         │ spawn (one per session)
-┌──────▼──────┐   ┌─────────▼───────┐
-│  state.db   │   │ GoTTY → bash    │  ...
-│  (WAL)      │   │ (real PTY)      │
-└─────────────┘   └─────────────────┘
+       │ bun:sqlite         │ spawn (one GoTTY per session)
+┌──────▼──────┐   ┌──────────▼──────────┐
+│  state.db   │   │ GoTTY → tmux → shell │  ...
+│  (WAL)      │   │ (real PTY, durable)  │
+└─────────────┘   └─────────────────────┘
 ```
 
 The browser never connects to GoTTY directly — every PTY stream is proxied
-through the Bun server. App state (layout, groups, notes) lives in SQLite; the
-terminal scrollback buffer is owned by GoTTY and is not persisted.
+through the Bun server. App state (layout, groups, notes, terminal settings)
+lives in SQLite. With `tmux`, the shell + its scrollback live in the tmux server
+(a daemon independent of Bun), so a server restart **reattaches** the same
+running session rather than starting fresh; GoTTY becomes a disposable attach
+client. Without tmux, sessions are plain child shells and don't persist across
+restarts.
 
 ## Tech stack
 
@@ -123,7 +151,8 @@ terminal scrollback buffer is owned by GoTTY and is not persisted.
 | Frontend         | React 18 + TypeScript, Vite                         |
 | Terminal         | xterm.js v5 + `@xterm/addon-fit`                    |
 | PTY backend      | GoTTY (one subprocess per session)                  |
-| Notes editor     | Tiptap (markdown round-trip)                        |
+| Session durability | tmux (optional; durable session per terminal)     |
+| Notes editor     | Tiptap (markdown round-trip, version-checked sync)  |
 | State (client)   | Zustand                                             |
 | State (server)   | `bun:sqlite` (WAL)                                  |
 | Styling          | Tailwind CSS v4                                     |
