@@ -12,8 +12,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SessionKind } from "../shared/types.ts";
 import { config } from "./config.ts";
-import { allSessionIds, sessionMeta, setSessionPort } from "./db.ts";
+import { allLiveSessionIds, allSessionIds, sessionMeta, setSessionPort } from "./db.ts";
 import { extractGotty, extractSessionInit, extractSessionInitZsh } from "./embedded.ts";
+import { setStatus } from "./status.ts";
 
 // One GoTTY process per session. GoTTY itself forks a fresh shell for EACH
 // WebSocket connection, so two browsers on the same session get independent
@@ -120,6 +121,149 @@ async function shellCommand(): Promise<{ cmd: string[]; env: Record<string, stri
     }
   }
   return { cmd: ["bash", "--rcfile", await sessionInitPath(), "-i"], env: {} };
+}
+
+// ---- tmux durable-session layer ----------------------------------------------
+// Each tabterm session runs inside a tmux session `tt-<id>` on a private server
+// socket, so the shell + its programs + scrollback survive a Bun restart/crash
+// (gotty just re-attaches). Falls back to a direct child shell when tmux is
+// absent or disabled (config.tmux === "off") — behavior then matches pre-tmux.
+export const TMUX_SOCKET = "tabterm";
+export const tmuxSessionName = (sessionId: string) => `tt-${sessionId}`;
+
+// Resolved tmux binary path, or null when disabled/missing. Cached.
+let tmuxBinPromise: Promise<string | null> | null = null;
+let tmuxActive = false;
+function tmuxBin(): Promise<string | null> {
+  if (!tmuxBinPromise) {
+    tmuxBinPromise = (async () => {
+      const bin = config.tmux === "off" ? null : Bun.which("tmux");
+      tmuxActive = bin !== null;
+      return bin;
+    })();
+  }
+  return tmuxBinPromise;
+}
+
+// Whether sessions are tmux-backed (resolved after the first spawn/poll tick).
+// The proxy's OSC-133 status scanner is gated off when this is true: under tmux
+// the poller is the single status source for shell sessions (and OSC-133 may not
+// survive tmux anyway), so we avoid a dual-writer race. False on no-tmux hosts,
+// where the scanner remains the status source.
+export function tmuxEnabled(): boolean {
+  return tmuxActive;
+}
+
+const TMUX_CONF = [
+  "set -g status off", // no tmux status bar — the browser is the chrome
+  "set -g window-size latest", // size to the most-recent client, not the smallest
+  // Mouse ON so the scroll wheel drives tmux copy-mode: tmux's client owns the
+  // (alternate) screen while attached, which disables xterm.js's own scrollback,
+  // so without this the wheel does nothing. Shift+drag still does a native
+  // browser text selection (xterm.js bypasses mouse reporting on Shift).
+  "set -g mouse on",
+  "",
+].join("\n");
+
+let tmuxConfPromise: Promise<string> | null = null;
+function tmuxConf(): Promise<string> {
+  if (!tmuxConfPromise) {
+    tmuxConfPromise = (async () => {
+      const dir = join(homedir(), ".cache/tabterm");
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, "tmux.conf");
+      writeIfChanged(path, TMUX_CONF);
+      return path;
+    })();
+  }
+  return tmuxConfPromise;
+}
+
+// Push the current tmux.conf into an already-running tmux server. The `-f conf`
+// flag only applies when the server first starts, but our tmux server is
+// long-lived across Bun restarts — so config changes (e.g. the mouse setting)
+// must be re-sourced on boot to take effect without killing the server.
+export async function reloadTmuxConf(): Promise<void> {
+  const bin = await tmuxBin();
+  if (!bin) return;
+  try {
+    const conf = await tmuxConf();
+    spawn([bin, "-L", TMUX_SOCKET, "source-file", conf], { stdout: "ignore", stderr: "ignore" });
+  } catch {
+    // no server running yet — a fresh server picks up the conf via `-f`
+  }
+}
+
+// Wrap the base shell command in `tmux new-session -A` so it runs inside a
+// durable tmux session. Per-session env is folded into an `env VAR=… <shell>`
+// prefix instead of relying on tmux's singleton-server environment (which would
+// bleed the first session's vars into later ones). On reattach `-A` ignores the
+// command, so the already-running shell/AI command resumes untouched. Returns
+// null when tmux is unavailable → caller uses the direct-shell path.
+async function tmuxWrap(
+  sessionId: string,
+  cwd: string | undefined,
+  baseCmd: string[],
+  sessionEnvVars: Record<string, string>,
+): Promise<string[] | null> {
+  const bin = await tmuxBin();
+  if (!bin) return null;
+  const conf = await tmuxConf();
+  const envPrefix = Object.entries(sessionEnvVars).map(([k, v]) => `${k}=${v}`);
+  return [
+    bin, "-L", TMUX_SOCKET, "-f", conf,
+    "new-session", "-A", "-s", tmuxSessionName(sessionId),
+    ...(cwd ? ["-c", cwd] : []),
+    "--", "env", ...envPrefix, ...baseCmd,
+  ];
+}
+
+// Kill a session's tmux session — used by purge. No-op when tmux is off or the
+// session is already gone. Soft-close must NOT call this (it keeps the session
+// alive, detached, so reopen resumes the running programs).
+export async function killTmuxSession(sessionId: string): Promise<void> {
+  const bin = await tmuxBin();
+  if (!bin) return;
+  try {
+    spawn([bin, "-L", TMUX_SOCKET, "kill-session", "-t", tmuxSessionName(sessionId)], {
+      stdout: "ignore", stderr: "ignore",
+    });
+  } catch {
+    // server not running / session already gone — nothing to do
+  }
+}
+
+// Boot reconcile: kill any `tt-<id>` tmux session that has no backing DB row
+// (purged while the server was down). Diffs against ALL persisted sessions —
+// open AND soft-closed — so a detached soft-closed session's running work is
+// never reaped. No-op when tmux is off or the server isn't running.
+export async function reapOrphanTmux(): Promise<void> {
+  const bin = await tmuxBin();
+  if (!bin) return;
+  let out = "";
+  try {
+    const proc = spawn([bin, "-L", TMUX_SOCKET, "list-sessions", "-F", "#{session_name}"], {
+      stdout: "pipe", stderr: "ignore",
+    });
+    out = await new Response(proc.stdout).text();
+    await proc.exited;
+  } catch {
+    return; // no server yet / nothing to reconcile
+  }
+  const live = new Set(allLiveSessionIds());
+  let killed = 0;
+  for (const line of out.split("\n")) {
+    const name = line.trim();
+    if (!name.startsWith("tt-")) continue;
+    if (live.has(name.slice(3))) continue;
+    try {
+      spawn([bin, "-L", TMUX_SOCKET, "kill-session", "-t", name], { stdout: "ignore", stderr: "ignore" });
+      killed++;
+    } catch {
+      // best-effort
+    }
+  }
+  if (killed > 0) console.log(`[gotty] reaped ${killed} orphan tmux session(s)`);
 }
 
 // Per-session state dir for AI sessions. We persist one UUID per session up-front;
@@ -288,6 +432,14 @@ export async function ensure(sessionId: string): Promise<number> {
   const kind = meta?.kind ?? "shell";
   const extraEnv = { ...sessionEnv(sessionId, kind), ...shell.env };
 
+  // tmux-backed when available: gotty runs a `tmux new-session -A` client and
+  // the per-session env rides an `env VAR=…` prefix inside the tmux command.
+  // Otherwise gotty runs the shell directly with the env on its own process
+  // (byte-identical to the pre-tmux behavior).
+  const wrapped = await tmuxWrap(sessionId, cwd, shell.cmd, extraEnv);
+  const launchCmd = wrapped ?? shell.cmd;
+  const launchEnv = wrapped ? {} : extraEnv;
+
   for (let attempt = 1; attempt <= 5; attempt++) {
     const port = await allocatePort();
     const proc = spawn(
@@ -297,13 +449,13 @@ export async function ensure(sessionId: string): Promise<number> {
         "--address", "127.0.0.1",
         "--permit-write",
         "--ws-origin", ".*",
-        ...shell.cmd,
+        ...launchCmd,
       ],
       {
         stdout: "ignore",
         stderr: "ignore",
         ...(cwd ? { cwd } : {}),
-        env: { ...process.env, ...extraEnv } as Record<string, string>,
+        env: { ...process.env, ...launchEnv } as Record<string, string>,
       },
     );
 
@@ -319,7 +471,7 @@ export async function ensure(sessionId: string): Promise<number> {
       procs.set(sessionId, { proc, port });
       setSessionPort(sessionId, port);
       if (proc.pid) writePidFile(sessionId, proc.pid);
-      console.log(`[gotty] session ${sessionId} -> ${shell.cmd.join(" ")} on :${port}${cwd ? ` (cwd=${cwd})` : ""}`);
+      console.log(`[gotty] session ${sessionId} -> ${(wrapped ? `tmux ${tmuxSessionName(sessionId)}` : shell.cmd.join(" "))} on :${port}${cwd ? ` (cwd=${cwd})` : ""}`);
       return port;
     }
 
@@ -383,6 +535,51 @@ export function startHealthMonitor(intervalMs = 30_000): () => void {
           await ensure(sessionId);
         }
       }
+    } finally {
+      running = false;
+    }
+  }, intervalMs);
+  return () => clearInterval(timer);
+}
+
+// Shell foreground commands that mean "at the prompt" (idle). Anything else
+// running in the pane (vim, htop, a build) means "running".
+const IDLE_COMMANDS = new Set(
+  ["bash", "zsh", "sh", "fish", (userShellPath().split("/").pop() || "bash")],
+);
+
+// Drive the sidebar idle/running dot for tmux-backed shell sessions by polling
+// each pane's foreground command. OSC-133 markers (the non-tmux status source,
+// scanned in proxy.ts) don't survive tmux, so this is the status source under
+// tmux. AI sessions are hook-driven (skipped); no-tmux installs no-op every
+// tick. Returns a stop function.
+export function startTmuxStatusPoller(intervalMs = 1500): () => void {
+  let running = false;
+  const timer = setInterval(async () => {
+    if (running) return;
+    running = true;
+    try {
+      const bin = await tmuxBin();
+      if (!bin) return;
+      const proc = spawn(
+        [bin, "-L", TMUX_SOCKET, "list-panes", "-a", "-F", "#{session_name} #{pane_current_command}"],
+        { stdout: "pipe", stderr: "ignore" },
+      );
+      const out = await new Response(proc.stdout).text();
+      await proc.exited;
+      for (const line of out.split("\n")) {
+        const sp = line.indexOf(" ");
+        if (sp < 0) continue;
+        const name = line.slice(0, sp);
+        if (!name.startsWith("tt-")) continue;
+        const id = name.slice(3);
+        const meta = sessionMeta(id);
+        if (!meta || meta.kind !== "shell") continue; // AI sessions are hook-driven
+        const cmd = line.slice(sp + 1).trim();
+        setStatus(id, IDLE_COMMANDS.has(cmd) ? "idle" : "running");
+      }
+    } catch {
+      // tmux server not running / transient failure — skip this tick
     } finally {
       running = false;
     }

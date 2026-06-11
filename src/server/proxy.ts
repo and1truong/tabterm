@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import { ensure, portOf } from "./gotty.ts";
+import { ensure, portOf, tmuxEnabled } from "./gotty.ts";
 import { setStatus } from "./status.ts";
 
 // Shared-terminal proxy: every browser connection to a session attaches to ONE
@@ -97,7 +97,9 @@ async function connectUpstream(s: Shared): Promise<void> {
     const data = typeof ev.data === "string" ? ev.data : td.decode(ev.data as ArrayBuffer);
     if (data[0] !== "1") return; // only Output frames matter to xterm
     const bytes = fromBase64(data.slice(1));
-    detectShellStatus(s.sessionId, bytes);
+    // Under tmux the poller owns shell-session status; skip the OSC-133 scanner
+    // to avoid a dual-writer race (and because OSC-133 may not survive tmux).
+    if (!tmuxEnabled()) detectShellStatus(s.sessionId, bytes);
     bufferOutput(s, bytes);
     for (const client of s.clients) client.send(bytes);
   };

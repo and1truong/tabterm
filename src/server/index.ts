@@ -4,7 +4,7 @@ import { ensureClaudeHooks } from "./claude-hooks.ts";
 import { config } from "./config.ts";
 import { seedIfEmpty } from "./db.ts";
 import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
-import { killAll, reapOrphans, respawnAll, startHealthMonitor } from "./gotty.ts";
+import { killAll, reapOrphans, reapOrphanTmux, reloadTmuxConf, respawnAll, startHealthMonitor, startTmuxStatusPoller } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
 import { handleApi, handleNotify, handleStatusUpdate, handleUpload } from "./routes.ts";
 import * as appws from "./ws.ts";
@@ -25,8 +25,11 @@ type SocketData = AppData | proxy.ProxyData;
 seedIfEmpty();
 ensureClaudeHooks(); // inject UserPromptSubmit + Stop hooks into ~/.claude/settings.json
 reapOrphans(); // kill any gotty children left behind by a previous crash
+await reapOrphanTmux(); // kill tmux sessions whose tabterm session was purged while down
 await respawnAll(); // auto-respawn GoTTY for persisted sessions on restart
+await reloadTmuxConf(); // re-source tmux.conf into the long-lived tmux server (config changes survive restart)
 startHealthMonitor(); // ping GoTTY processes every 30s, respawn if unresponsive
+startTmuxStatusPoller(); // drive idle/running status for tmux-backed shell sessions (no-op without tmux)
 
 const asProxy = (ws: ServerWebSocket<SocketData>) => ws as ServerWebSocket<proxy.ProxyData>;
 const asApp = (ws: ServerWebSocket<SocketData>) => ws as ServerWebSocket<unknown>;
