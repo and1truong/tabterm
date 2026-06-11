@@ -75,7 +75,7 @@ back to a sensible default.
 | `port`          | `3000`                   | HTTP + WebSocket server port.                                                              |
 | `gottyBasePort` | `4001`                   | First port for dynamically-allocated GoTTY processes (one per session).                    |
 | `gottyBin`      | bundled binary           | Path to the GoTTY binary.                                                                  |
-| `sessionInit`   | _(none)_                 | Path to a session-init script, or `"off"` to launch `$SHELL` directly.                     |
+| `sessionInit`   | _(none)_                 | Default honors your `$SHELL` (zsh or bash) with status/AI-startup hooks layered on. Set a path to use a custom bash rcfile, or `"off"` to launch a bare `$SHELL` with no injection. |
 | `claudeCommand` | `claude`                 | Command launched for "Claude session". Use an absolute path if it's outside `$PATH`.       |
 
 Paths support `~` expansion. Example `~/.config/tabterm.json`:

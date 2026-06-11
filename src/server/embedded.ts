@@ -1,7 +1,12 @@
 import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { GOTTY_EMBED, SESSION_INIT_EMBED, SPA_FILES } from "./embedded.generated.ts";
+import {
+  GOTTY_EMBED,
+  SESSION_INIT_EMBED,
+  SESSION_INIT_ZSH_EMBED,
+  SPA_FILES,
+} from "./embedded.generated.ts";
 
 // When the compiled binary runs, embedded.generated.ts holds /$bunfs/ paths
 // for every SPA asset, the gotty binary, and session-init.bash. We extract the
@@ -43,4 +48,11 @@ export function extractSessionInit(): Promise<string> | null {
   if (!SESSION_INIT_EMBED) return null;
   if (!initPromise) initPromise = extract(SESSION_INIT_EMBED, "session-init.bash", false);
   return initPromise;
+}
+
+let initZshPromise: Promise<string> | null = null;
+export function extractSessionInitZsh(): Promise<string> | null {
+  if (!SESSION_INIT_ZSH_EMBED) return null;
+  if (!initZshPromise) initZshPromise = extract(SESSION_INIT_ZSH_EMBED, "session-init.zsh", false);
+  return initZshPromise;
 }

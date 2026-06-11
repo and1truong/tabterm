@@ -20,6 +20,7 @@ const STUB = [
   "export const SPA_FILES: Record<string, string> = {};",
   "export const GOTTY_EMBED: string | null = null;",
   "export const SESSION_INIT_EMBED: string | null = null;",
+  "export const SESSION_INIT_ZSH_EMBED: string | null = null;",
   "",
 ].join("\n");
 
@@ -65,12 +66,14 @@ const lines: string[] = [
 for (const f of spa) lines.push(`import ${f.ident} from "${f.modulePath}" with { type: "file" };`);
 lines.push(`import _gotty from "../../bin/gotty" with { type: "file" };`);
 lines.push(`import _init from "./session-init.bash" with { type: "file" };`);
+lines.push(`import _initZsh from "./session-init.zsh" with { type: "file" };`);
 lines.push("");
 lines.push("export const SPA_FILES: Record<string, string> = {");
 for (const f of spa) lines.push(`  "${f.urlPath}": ${f.ident},`);
 lines.push("};");
 lines.push("export const GOTTY_EMBED: string | null = _gotty;");
 lines.push("export const SESSION_INIT_EMBED: string | null = _init;");
+lines.push("export const SESSION_INIT_ZSH_EMBED: string | null = _initZsh;");
 lines.push("");
 
 writeFileSync(OUT, lines.join("\n"));

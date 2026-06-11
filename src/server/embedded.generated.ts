@@ -6,3 +6,4 @@
 export const SPA_FILES: Record<string, string> = {};
 export const GOTTY_EMBED: string | null = null;
 export const SESSION_INIT_EMBED: string | null = null;
+export const SESSION_INIT_ZSH_EMBED: string | null = null;
