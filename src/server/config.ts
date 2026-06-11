@@ -12,6 +12,9 @@ interface FileConfig {
   gottyBin?: string;
   gottyBasePort?: number;
   sessionInit?: string;
+  // "off" disables the tmux-backed durable-session layer (sessions then run as
+  // direct child shells, as before). Any other value / unset = use tmux when available.
+  tmux?: string;
   // Launch profiles surfaced as sidebar/palette buttons beyond the bare-shell
   // default. Each entry maps a session `kind` (DB column) to the binary that
   // runs on entry plus the label/icon/color shown in the UI.
@@ -56,6 +59,7 @@ export const config = {
   gottyBin: file.gottyBin ? expandHome(file.gottyBin) : undefined,
   gottyBasePort: file.gottyBasePort ?? 4001,
   sessionInit: file.sessionInit,
+  tmux: file.tmux,
   sessionCommands: (file.sessionCommands ?? DEFAULT_SESSION_COMMANDS).map((c) => ({
     ...c,
     command: expandHome(c.command),

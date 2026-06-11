@@ -41,3 +41,10 @@ chmodSync(DEST, 0o755);
 
 const { stdout } = await $`${DEST} --version`.quiet();
 console.log(`[gotty] installed: ${stdout.toString().trim()}`);
+
+// tmux is an OPTIONAL runtime dependency: when present, sessions run inside tmux
+// so they survive a server restart. We don't auto-install it (system package,
+// needs a package manager) — just hint when it's missing.
+if (!Bun.which("tmux")) {
+  console.log("[tmux] not found — install tmux (>=3.1) for durable sessions that survive restarts; sessions work without it but won't persist.");
+}

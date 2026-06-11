@@ -641,6 +641,14 @@ export function allSessionIds(): string[] {
   return q.allSessions.all().filter((r) => r.closed_at == null).map((r) => r.id);
 }
 
+// Every persisted session id — OPEN and soft-closed. Used only by the tmux
+// reconcile: soft-closed sessions keep their tmux session alive (running work)
+// for reopen, so reconcile must NOT treat them as orphans. Purged sessions are
+// already DELETEd from the table, so absence here means "no backing row".
+export function allLiveSessionIds(): string[] {
+  return q.allSessions.all().map((r) => r.id);
+}
+
 // ---- notes -------------------------------------------------------------------
 
 // Create a fresh note for a session, append it to the position list, and make

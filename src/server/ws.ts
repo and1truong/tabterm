@@ -24,7 +24,7 @@ import {
   updateSettings,
 } from "./db.ts";
 import { config } from "./config.ts";
-import { ensure, kill } from "./gotty.ts";
+import { ensure, kill, killTmuxSession } from "./gotty.ts";
 import { attachStatuses, clearStatus, setStatusBroadcaster } from "./status.ts";
 
 // App-level WS connections (distinct from the per-session GoTTY proxy sockets
@@ -123,6 +123,7 @@ export function onMessage(ws: ServerWebSocket<unknown>, raw: string): void {
       const result = purgeSession(msg.sessionId);
       if (!result) break;
       kill(msg.sessionId);
+      void killTmuxSession(msg.sessionId); // tear down the durable tmux session
       clearStatus(msg.sessionId);
       broadcast({ type: "patch", entity: "session", op: "delete", id: msg.sessionId });
       if (result.order) {
@@ -167,6 +168,7 @@ export function onMessage(ws: ServerWebSocket<unknown>, raw: string): void {
       if (!result) break;
       for (const sid of result.sessionIds) {
         kill(sid);
+        void killTmuxSession(sid); // tear down each session's durable tmux session
         clearStatus(sid);
         broadcast({ type: "patch", entity: "session", op: "delete", id: sid });
       }
