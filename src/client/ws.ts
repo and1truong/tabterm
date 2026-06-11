@@ -8,7 +8,10 @@ const MAX_BACKOFF = 5000;
 // Messages produced while the socket is down are buffered here and flushed on
 // reconnect, so an edit made offline isn't silently dropped. Stale note edits
 // that flush after a remote change are caught by the server's version check.
+// Capped as a backstop for very long disconnects: note edits collapse below, so
+// hitting the cap takes hundreds of distinct ops — drop the oldest beyond it.
 const outbox: ClientMessage[] = [];
+const OUTBOX_MAX = 256;
 
 function enqueue(msg: ClientMessage): void {
   // Collapse superseded content/title edits for the same note so a long offline
@@ -29,6 +32,7 @@ function enqueue(msg: ClientMessage): void {
     }
   }
   outbox.push(msg);
+  if (outbox.length > OUTBOX_MAX) outbox.shift();
 }
 
 function flushOutbox(): void {

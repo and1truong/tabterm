@@ -74,7 +74,10 @@ export function NotesPanel({ sessionId }: { sessionId: string }) {
   const flushPending = () => {
     clearTimeout(timer.current);
     for (const [noteId, content] of pending.current) {
-      const base = baseByNote.current.get(noteId) ?? notes[noteId]?.version ?? 1;
+      // Read the store directly: the unmount cleanup calls this from a closure
+      // whose `notes` snapshot is stale.
+      const base =
+        baseByNote.current.get(noteId) ?? useStore.getState().notes[noteId]?.version ?? 1;
       sendMessage({ type: "note:update", noteId, content, baseVersion: base });
       baseByNote.current.set(noteId, base + 1); // optimistic: assume accepted
     }
