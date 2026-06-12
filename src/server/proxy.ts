@@ -51,9 +51,48 @@ function detectShellStatus(sessionId: string, bytes: Uint8Array): void {
   if (last) setStatus(sessionId, last);
 }
 
+// Strip terminal queries (DA1/DA2/DA3 = CSI…c, DSR = CSI…n) from a chunk before
+// it enters the replay buffer. tmux sends these to the real terminal (xterm.js
+// in the browser) to detect capabilities; xterm answers them via onData on the
+// way in. That's fine live — but if the queries stay in the buffer, every
+// reconnect replays them, xterm answers AGAIN, and the responses (ESC[?1;2c,
+// ESC[>0;276;0c) arrive on the PTY input AFTER tmux has moved on, so they fall
+// through to the shell. ZLE eats the ESC[? / ESC[> prefix; "1;2c0;276;0c" gets
+// inserted at the prompt as keystrokes. Final byte 'c' and 'n' uniquely belong
+// to the query/report families, so dropping every such CSI in the buffer is safe.
+function stripTerminalQueries(bytes: Uint8Array): Uint8Array {
+  if (bytes.indexOf(0x1b) === -1) return bytes;
+  const out = new Uint8Array(bytes.length);
+  let w = 0;
+  let i = 0;
+  while (i < bytes.length) {
+    if (bytes[i] !== 0x1b || i + 1 >= bytes.length || bytes[i + 1] !== 0x5b) {
+      out[w++] = bytes[i++];
+      continue;
+    }
+    // CSI = ESC [ . Walk param/intermediate bytes (0x20–0x3F), then a final byte (0x40–0x7E).
+    let j = i + 2;
+    while (j < bytes.length && bytes[j] >= 0x20 && bytes[j] <= 0x3f) j++;
+    if (j >= bytes.length) {
+      // Truncated CSI at chunk end — copy verbatim; rare for tiny queries.
+      while (i < bytes.length) out[w++] = bytes[i++];
+      break;
+    }
+    const final = bytes[j];
+    if (final === 0x63 /* 'c' */ || final === 0x6e /* 'n' */) {
+      i = j + 1;
+    } else {
+      while (i <= j) out[w++] = bytes[i++];
+    }
+  }
+  return out.subarray(0, w);
+}
+
 function bufferOutput(s: Shared, bytes: Uint8Array): void {
-  s.buffer.push(bytes);
-  s.bufferBytes += bytes.length;
+  const clean = stripTerminalQueries(bytes);
+  if (clean.length === 0) return;
+  s.buffer.push(clean);
+  s.bufferBytes += clean.length;
   while (s.bufferBytes > BUFFER_CAP && s.buffer.length > 1) {
     s.bufferBytes -= s.buffer.shift()!.length;
   }
