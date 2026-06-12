@@ -347,7 +347,10 @@ export function Terminal({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="relative h-full w-full flex flex-col" style={{ background: "var(--term-bg)" }}>
-      <div ref={hostRef} className="flex-1 min-h-0 w-full p-2" style={{ touchAction: "none" }} />
+      {/* Padding lives on the wrapper, not hostRef: FitAddon subtracts padding from xterm.element, not its parent — keep hostRef padding-less or the bottom row gets clipped. */}
+      <div className="flex-1 min-h-0 w-full p-2">
+        <div ref={hostRef} className="h-full w-full" style={{ touchAction: "none" }} />
+      </div>
       {showKeyBar && (
         <TerminalKeyBar
           onKey={(seq) => sendRef.current(seq)}
