@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/icon-192.png" alt="TabTerm" width="96" height="96">
+</p>
+
 <h1 align="center">TabTerm</h1>
 
 <p align="center">
