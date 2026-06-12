@@ -32,8 +32,22 @@ export function Sidebar() {
   const setActiveSession = useStore((s) => s.setActiveSession);
   const requestFocus = useStore((s) => s.requestFocus);
   const sessionCommands = useStore((s) => s.sessionCommands);
+  const confirmCloseWhenRunning = useStore((s) => s.serverConfig.confirmCloseWhenRunning);
   // Sidebar visibility is server-persisted (synced settings), toggled over WS.
   const hideSidebar = () => sendMessage({ type: "settings:update", patch: { showSidebar: false } });
+
+  // Centralized so the confirm prompt fires regardless of which row the click
+  // originated from. Behavior depends on server-side closeAction (keep / interrupt
+  // / purge) — the prompt only guards against losing in-flight work.
+  const closeSessionWithGuard = (id: string) => {
+    const session = sessions[id];
+    if (
+      confirmCloseWhenRunning &&
+      session?.status === "running" &&
+      !window.confirm(`"${session.label}" is still running. Close it anyway?`)
+    ) return;
+    sendMessage({ type: "session:close", sessionId: id });
+  };
 
   const drag = useRef<Drag | null>(null);
   const grpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -181,7 +195,7 @@ export function Sidebar() {
           className="opacity-0 group-hover:opacity-100 text-[var(--faint)] hover:text-red-400"
           onClick={(e) => {
             e.stopPropagation();
-            sendMessage({ type: "session:close", sessionId: id });
+            closeSessionWithGuard(id);
           }}
           title="Close subtab (kept in Archive)"
         >

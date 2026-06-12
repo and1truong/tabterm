@@ -1,13 +1,31 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import { join } from "node:path";
 import { ensureClaudeHooks } from "./claude-hooks.ts";
-import { config } from "./config.ts";
+import { CONFIG_DOC, CONFIG_PATH, config } from "./config.ts";
 import { seedIfEmpty } from "./db.ts";
 import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
 import { killAll, reapOrphans, reapOrphanTmux, reloadTmuxConf, respawnAll, startHealthMonitor, startTmuxStatusPoller } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
 import { handleApi, handleNotify, handleStatusUpdate, handleUpload } from "./routes.ts";
 import * as appws from "./ws.ts";
+
+// CLI: print the config schema and bail before the server starts. ESM hoists
+// the imports above, so config.ts + db.ts have already initialized by the time
+// we get here — `tabterm -h` will touch ~/.config/tabterm.db once. Acceptable.
+if (process.argv.slice(2).some((a) => a === "-h" || a === "--help")) {
+  console.log(`tabterm — durable terminal sessions with a web UI\n`);
+  console.log(`Usage: tabterm [-h|--help]\n`);
+  console.log(`Config file: ${CONFIG_PATH}`);
+  console.log(`Edit it as JSON. Every key is optional.\n`);
+  console.log(`Available keys:`);
+  const keyW = Math.max(...CONFIG_DOC.map((d) => d.key.length));
+  const typeW = Math.max(...CONFIG_DOC.map((d) => d.type.length));
+  for (const d of CONFIG_DOC) {
+    console.log(`  ${d.key.padEnd(keyW)}  ${d.type.padEnd(typeW)}  default: ${d.default}`);
+    console.log(`  ${" ".repeat(keyW + typeW + 4)}  ${d.doc}`);
+  }
+  process.exit(0);
+}
 
 const PORT = config.port;
 // `bun build --compile` inlines `process.env.NODE_ENV` at build time, so a
@@ -30,6 +48,12 @@ await respawnAll(); // auto-respawn GoTTY for persisted sessions on restart
 await reloadTmuxConf(); // re-source tmux.conf into the long-lived tmux server (config changes survive restart)
 startHealthMonitor(); // ping GoTTY processes every 30s, respawn if unresponsive
 startTmuxStatusPoller(); // drive idle/running status for tmux-backed shell sessions (no-op without tmux)
+
+if (config.autoPurgeClosedAfterDays > 0) {
+  // Sweep at boot, then hourly. Hourly is plenty given the unit is days.
+  appws.runAutoPurgeSweep();
+  setInterval(() => appws.runAutoPurgeSweep(), 60 * 60 * 1000);
+}
 
 const asProxy = (ws: ServerWebSocket<SocketData>) => ws as ServerWebSocket<proxy.ProxyData>;
 const asApp = (ws: ServerWebSocket<SocketData>) => ws as ServerWebSocket<unknown>;

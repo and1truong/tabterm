@@ -369,6 +369,9 @@ const q = {
     "UPDATE settings SET term_font_family = ?, term_font_size = ?, " +
       "term_line_height = ?, term_theme = ?, show_sidebar = ?, show_notes = ? WHERE id = 1",
   ),
+  closedSessionsOlderThan: db.query<{ id: string }, [number]>(
+    "SELECT id FROM sessions WHERE closed_at IS NOT NULL AND closed_at < ?",
+  ),
 };
 
 // ---- state loading -----------------------------------------------------------
@@ -642,6 +645,12 @@ export function reopenSession(
     primaryTabId: existing.primary_tab_id,
     order,
   };
+}
+
+// IDs of sessions whose closed_at is older than `cutoffUnix` (unix seconds).
+// Caller feeds each id through purgeSession() + killTmuxSession().
+export function staleClosedSessionIds(cutoffUnix: number): string[] {
+  return q.closedSessionsOlderThan.all(cutoffUnix).map((r) => r.id);
 }
 
 // Permanent: drop the session row + its notes.

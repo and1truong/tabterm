@@ -119,9 +119,17 @@ export interface AppState {
 
 export type Entity = "primaryTab" | "group" | "session" | "order" | "note" | "settings";
 
+// Server-side knobs surfaced to the client. Stays minimal — anything purely
+// server-side (db path, ports, closeAction, auto-purge cadence) is NOT mirrored.
+export interface ClientConfig {
+  // When true, the sidebar X confirms before closing a session whose status
+  // is "running" — protects against accidentally interrupting claude mid-turn.
+  confirmCloseWhenRunning: boolean;
+}
+
 // Server → Client
 export type ServerMessage =
-  | { type: "init"; state: AppState; sessionCommands: SessionCommand[] }
+  | { type: "init"; state: AppState; sessionCommands: SessionCommand[]; serverConfig: ClientConfig }
   | { type: "patch"; entity: Entity; op: "set"; data: unknown }
   | { type: "patch"; entity: Entity; op: "delete"; id: string }
   // Ephemeral attention ping (not persisted). Emitted when a claude-backed

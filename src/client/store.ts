@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AppSettings,
   AppState,
+  ClientConfig,
   Group,
   Note,
   PrimaryTab,
@@ -38,6 +39,10 @@ interface StoreState extends AppState {
   // localStorage; defaults on for touch devices, off on desktop.
   showKeyBar: boolean;
   sessionCommands: SessionCommand[];
+  // Server-side knobs surfaced over the wire (see ClientConfig). Stays empty
+  // until the first `init` message lands; the close button treats missing as
+  // "don't confirm" so first-paint clicks aren't blocked.
+  serverConfig: ClientConfig;
   // Note ids whose last local edit the server rejected as stale (a newer remote
   // edit exists). NotesPanel shows a resolve banner for the active note in here.
   noteConflicts: Set<string>;
@@ -134,6 +139,7 @@ export const useStore = create<StoreState>((set, get) => ({
   showCommandPalette: false,
   showKeyBar: initKeyBar(),
   sessionCommands: [],
+  serverConfig: { confirmCloseWhenRunning: false },
   noteConflicts: new Set(),
   unknownSlug: null,
 
@@ -175,7 +181,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   applyServerMessage: (msg) => {
     if (msg.type === "init") {
-      const { state, sessionCommands } = msg;
+      const { state, sessionCommands, serverConfig } = msg;
       const firstTab = Object.values(state.primaryTabs)
         .filter((t) => t.closedAt == null)
         .sort((a, b) => a.position - b.position)[0];
@@ -183,6 +189,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set({
         ...state,
         sessionCommands,
+        serverConfig,
         activePrimaryTabId,
         activeSessionId: get().activeSessionId ?? restoreFor(get, activePrimaryTabId),
       });

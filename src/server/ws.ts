@@ -14,6 +14,7 @@ import {
   purgeTab,
   renameEntity,
   reopenSession,
+  staleClosedSessionIds,
   reopenTab,
   reorderTabs,
   setActiveNote,
@@ -24,8 +25,8 @@ import {
   updateNoteTitle,
   updateSettings,
 } from "./db.ts";
-import { config } from "./config.ts";
-import { ensure, kill, killTmuxSession } from "./gotty.ts";
+import { clientConfig, config } from "./config.ts";
+import { ensure, interruptTmuxSession, kill, killTmuxSession } from "./gotty.ts";
 import { attachStatuses, clearStatus, setStatusBroadcaster } from "./status.ts";
 
 // App-level WS connections (distinct from the per-session GoTTY proxy sockets
@@ -51,6 +52,28 @@ export function broadcastNotify(sessionId: string, message: string): void {
   broadcast({ type: "notify", sessionId, message });
 }
 
+// Sweep soft-closed sessions older than autoPurgeClosedAfterDays. Mirrors the
+// session:purge branch (DB drop + tmux kill + broadcast) so the UI clears the
+// archive entry in real time. No-op when the knob is 0.
+export function runAutoPurgeSweep(): void {
+  if (!config.autoPurgeClosedAfterDays) return;
+  const cutoff = Math.floor(Date.now() / 1000) - config.autoPurgeClosedAfterDays * 86400;
+  const ids = staleClosedSessionIds(cutoff);
+  if (!ids.length) return;
+  for (const id of ids) {
+    const result = purgeSession(id);
+    if (!result) continue;
+    kill(id);
+    void killTmuxSession(id);
+    clearStatus(id);
+    broadcast({ type: "patch", entity: "session", op: "delete", id });
+    if (result.order) {
+      broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
+    }
+  }
+  console.log(`[auto-purge] removed ${ids.length} stale closed session(s) older than ${config.autoPurgeClosedAfterDays}d`);
+}
+
 setStatusBroadcaster((session) => broadcast(setPatch("session", session)));
 
 export function onOpen(ws: ServerWebSocket<unknown>): void {
@@ -59,6 +82,7 @@ export function onOpen(ws: ServerWebSocket<unknown>): void {
     type: "init",
     state: attachStatuses(loadState()),
     sessionCommands: config.sessionCommands,
+    serverConfig: clientConfig(),
   });
 }
 
@@ -108,8 +132,25 @@ export function onMessage(ws: ServerWebSocket<unknown>, raw: string): void {
       break;
     }
     case "session:close": {
+      // closeAction=purge → behave like an explicit purge: tear tmux down, drop
+      // the DB row. closeAction=interrupt → send 2× Ctrl+C into the pane first
+      // so claude exits its turn cleanly, then soft-close (tmux session lives,
+      // shell stays attached, no billable work hangs around). keep → legacy.
+      if (config.closeAction === "purge") {
+        const result = purgeSession(msg.sessionId);
+        if (!result) break;
+        kill(msg.sessionId);
+        void killTmuxSession(msg.sessionId);
+        clearStatus(msg.sessionId);
+        broadcast({ type: "patch", entity: "session", op: "delete", id: msg.sessionId });
+        if (result.order) {
+          broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
+        }
+        break;
+      }
       const result = closeSession(msg.sessionId);
       if (!result) break;
+      if (config.closeAction === "interrupt") void interruptTmuxSession(msg.sessionId);
       kill(msg.sessionId);
       clearStatus(msg.sessionId);
       broadcast(setPatch("session", result.session));

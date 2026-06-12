@@ -230,6 +230,27 @@ async function tmuxWrap(
   ];
 }
 
+// Send two Ctrl+C into the tmux pane: cancel-then-exit. Claude Code's
+// interactive mode treats a single C-c as "abort current turn" and a second
+// (within ~1s) as "exit". The 250ms gap lets it render the confirm prompt
+// before the second keystroke fires. No-op when tmux is off.
+export async function interruptTmuxSession(sessionId: string): Promise<void> {
+  const bin = await tmuxBin();
+  if (!bin) return;
+  const target = tmuxSessionName(sessionId);
+  try {
+    spawn([bin, "-L", TMUX_SOCKET, "send-keys", "-t", target, "C-c"], {
+      stdout: "ignore", stderr: "ignore",
+    });
+    await new Promise((r) => setTimeout(r, 250));
+    spawn([bin, "-L", TMUX_SOCKET, "send-keys", "-t", target, "C-c"], {
+      stdout: "ignore", stderr: "ignore",
+    });
+  } catch {
+    // tmux server not running / session already gone — nothing to do.
+  }
+}
+
 // Kill a session's tmux session — used by purge. No-op when tmux is off or the
 // session is already gone. Soft-close must NOT call this (it keeps the session
 // alive, detached, so reopen resumes the running programs).
