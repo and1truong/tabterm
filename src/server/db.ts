@@ -521,44 +521,53 @@ export function deleteGroup(
   // Children in their original in-group order (closed_at is NULL for open ones).
   const childRows = q.sessionsByGroup.all(groupId);
 
-  // Reparent every child. Position is a monotonically increasing scratch value
-  // — actual sidebar ordering comes from `order` below.
-  let nextPos = (q.maxSessionPos.get(primaryTabId)?.p ?? -1) + 1;
+  // Each child gets a fresh position past the current tab-wide max, so the
+  // values can't collide with any other session's position. Actual sidebar
+  // ordering for open children comes from `order` (rebuilt below); position
+  // is just bookkeeping for sort stability if `order` is ever rederived.
+  const basePos = (q.maxSessionPos.get(primaryTabId)?.p ?? -1) + 1;
+
   const updatedSessions: Session[] = [];
   const openChildIds: string[] = [];
-  for (const row of childRows) {
-    q.setSessionGroupPos.run(null, nextPos, row.id);
-    nextPos += 1;
-    updatedSessions.push(toSession(q.getSession.get(row.id)!));
-    if (row.closed_at == null) openChildIds.push(row.id);
-  }
+  let next: string[] = [];
 
-  // Drop the group row before rewriting `order`, so any reader looking up
-  // groups[id] during the broadcast won't find a stale entry.
-  q.deleteGroup.run(groupId);
-
-  // Replace the group's slot in `order` with its open children, in their
-  // original in-group order. Filter duplicates defensively.
-  const prev = readOrder(primaryTabId);
-  const idx = prev.indexOf(groupId);
-  const seen = new Set<string>();
-  const next: string[] = [];
-  const push = (id: string) => {
-    if (!seen.has(id)) {
-      seen.add(id);
-      next.push(id);
+  db.transaction(() => {
+    let nextPos = basePos;
+    for (const row of childRows) {
+      q.setSessionGroupPos.run(null, nextPos, row.id);
+      nextPos += 1;
+      updatedSessions.push(toSession(q.getSession.get(row.id)!));
+      if (row.closed_at == null) openChildIds.push(row.id);
     }
-  };
-  if (idx === -1) {
-    // Group wasn't in order for some reason — just append the orphans.
-    for (const id of prev) push(id);
-    for (const id of openChildIds) push(id);
-  } else {
-    for (let i = 0; i < idx; i++) push(prev[i]);
-    for (const id of openChildIds) push(id);
-    for (let i = idx + 1; i < prev.length; i++) push(prev[i]);
-  }
-  writeOrder(primaryTabId, next);
+
+    // Drop the group row before rewriting `order`, so any reader looking up
+    // groups[id] during the broadcast won't find a stale entry.
+    q.deleteGroup.run(groupId);
+
+    // Replace the group's slot in `order` with its open children, in their
+    // original in-group order.
+    // Open children are never in `order` (only groups + ungrouped sessions are),
+    // so dedup is purely defensive against a corrupt order row.
+    const prev = readOrder(primaryTabId);
+    const idx = prev.indexOf(groupId);
+    const seen = new Set<string>();
+    const push = (id: string) => {
+      if (!seen.has(id)) {
+        seen.add(id);
+        next.push(id);
+      }
+    };
+    if (idx === -1) {
+      // Group wasn't in order for some reason — just append the orphans.
+      for (const id of prev) push(id);
+      for (const id of openChildIds) push(id);
+    } else {
+      for (let i = 0; i < idx; i++) push(prev[i]);
+      for (const id of openChildIds) push(id);
+      for (let i = idx + 1; i < prev.length; i++) push(prev[i]);
+    }
+    writeOrder(primaryTabId, next);
+  })();
 
   return { primaryTabId, order: next, sessions: updatedSessions };
 }
