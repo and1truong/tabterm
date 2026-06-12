@@ -80,6 +80,18 @@ export function Sidebar() {
   };
   const rename = (entity: "group" | "session", id: string, label: string) =>
     sendMessage({ type: "rename", entity, id, label });
+  const deleteGroup = (group: { id: string; label: string }) => {
+    const total = Object.values(sessions).filter((s) => s.groupId === group.id).length;
+    if (
+      total > 0 &&
+      !window.confirm(
+        `Delete group "${group.label}"? Its ${total} session${total === 1 ? "" : "s"} will move to the top level.`,
+      )
+    ) {
+      return;
+    }
+    sendMessage({ type: "group:delete", groupId: group.id });
+  };
 
   // --- drag/drop ---
   const onDragStart = (kind: Drag["kind"], id: string) => (e: React.DragEvent) => {
@@ -217,7 +229,7 @@ export function Sidebar() {
                     grpTimer.current = setTimeout(() => sendMessage({ type: "group:toggle", groupId: gid }), 200);
                   }}
                   onDoubleClick={() => clearTimeout(grpTimer.current)}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 text-xs uppercase tracking-wide text-[var(--faint)] cursor-pointer hover:text-[var(--muted)] ${insertBar(
+                  className={`group flex items-center gap-1.5 px-2 py-1.5 text-xs uppercase tracking-wide text-[var(--faint)] cursor-pointer hover:text-[var(--muted)] ${insertBar(
                     `top:${group.id}`,
                   )}`}
                 >
@@ -233,6 +245,16 @@ export function Sidebar() {
                     title="New subtab in group"
                   >
                     <Plus size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteGroup(group);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-[var(--faint)] hover:text-red-400"
+                    title="Delete group (sessions move to top level)"
+                  >
+                    <X size={13} />
                   </button>
                 </div>
                 {group.isOpen &&
