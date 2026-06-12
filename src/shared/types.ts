@@ -143,6 +143,7 @@ export type ClientMessage =
   | { type: "session:purge"; sessionId: string }
   | { type: "group:create"; primaryTabId: string; label: string; color: GroupColor }
   | { type: "group:toggle"; groupId: string }
+  | { type: "group:delete"; groupId: string }
   | { type: "tab:create"; label: string; cwd?: string; id?: string }
   | { type: "tab:setCwd"; tabId: string; cwd: string }
   | { type: "tab:close"; tabId: string }
