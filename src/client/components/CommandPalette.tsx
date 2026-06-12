@@ -196,7 +196,7 @@ export function CommandPalette() {
     out.push({
       kind: "action",
       id: "closed-sessions",
-      label: "Open closed subtabs…",
+      label: "Open closed sessions…",
       icon: "archive-sessions",
       run: () => toggleClosedSessions(),
     });

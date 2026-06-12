@@ -206,7 +206,7 @@ export function PrimaryTabs() {
           <button
             onClick={toggleClosedSessions}
             className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]"
-            title="Closed subtabs in this workspace"
+            title="Closed sessions in this workspace"
           >
             <Archive size={14} />
             <span className="mono">{closedCount}</span>

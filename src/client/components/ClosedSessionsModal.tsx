@@ -23,6 +23,9 @@ export function ClosedSessionsModal() {
         .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0)),
     ),
   );
+  const cmdByKind = useStore(
+    useShallow((s) => Object.fromEntries(s.sessionCommands.map((c) => [c.type, c]))),
+  );
   const setActiveSession = useStore((s) => s.setActiveSession);
 
   useEffect(() => {
@@ -61,7 +64,7 @@ export function ClosedSessionsModal() {
       >
         <div className="flex items-center gap-2 px-4 h-12 border-b border-[var(--border)]">
           <Archive size={15} className="text-[var(--muted)]" />
-          <span className="text-sm font-semibold text-[var(--text)] flex-1">Closed subtabs</span>
+          <span className="text-sm font-semibold text-[var(--text)] flex-1">Closed sessions</span>
           <button
             onClick={toggle}
             className="w-7 h-7 grid place-items-center rounded-md text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]"
@@ -74,18 +77,30 @@ export function ClosedSessionsModal() {
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {closed.length === 0 && (
             <div className="text-sm text-[var(--faint)] px-3 py-6 text-center">
-              No closed subtabs in this workspace.
+              No closed sessions in this workspace.
             </div>
           )}
-          {closed.map((s) => (
+          {closed.map((s) => {
+            const cmd = cmdByKind[s.kind];
+            return (
             <div
               key={s.id}
               className="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[var(--hover)]"
             >
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-[var(--text)] truncate">{s.label}</div>
-                <div className="text-xs text-[var(--faint)] mono">
-                  closed {relTime(s.closedAt ?? 0)}
+                <div className="flex items-center gap-1.5 text-xs text-[var(--faint)] mono">
+                  {cmd && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 h-4 rounded text-[10px] uppercase tracking-wide bg-[var(--bg)] border border-[var(--border)]"
+                      style={{ color: cmd.color ?? "var(--muted)" }}
+                      title={cmd.label}
+                    >
+                      <span>{cmd.icon}</span>
+                      <span>{cmd.type}</span>
+                    </span>
+                  )}
+                  <span>closed {relTime(s.closedAt ?? 0)}</span>
                 </div>
               </div>
               <button
@@ -112,7 +127,8 @@ export function ClosedSessionsModal() {
                 <Trash2 size={13} />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
