@@ -228,6 +228,12 @@ export const useStore = create<StoreState>((set, get) => ({
         set({ notes, noteConflicts: clearedConflict(get, msg.id) });
         return;
       }
+      if (msg.entity === "group") {
+        const groups = { ...get().groups };
+        delete groups[msg.id];
+        set({ groups });
+        return;
+      }
       if (msg.entity === "session") {
         const sessions = { ...get().sessions };
         delete sessions[msg.id];
