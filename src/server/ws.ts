@@ -18,6 +18,7 @@ import {
   reorderTabs,
   setActiveNote,
   setTabCwd,
+  deleteGroup,
   toggleGroup,
   updateNoteContent,
   updateNoteTitle,
@@ -83,6 +84,14 @@ export function onMessage(ws: ServerWebSocket<unknown>, raw: string): void {
     case "group:toggle": {
       const group = toggleGroup(msg.groupId);
       if (group) broadcast(setPatch("group", group));
+      break;
+    }
+    case "group:delete": {
+      const result = deleteGroup(msg.groupId);
+      if (!result) break;
+      broadcast({ type: "patch", entity: "group", op: "delete", id: msg.groupId });
+      for (const session of result.sessions) broadcast(setPatch("session", session));
+      broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));
       break;
     }
     case "session:create": {
