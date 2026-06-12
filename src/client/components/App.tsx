@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
+import { useLocationSync } from "../location.ts";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
 import { ClosedSessionsModal } from "./ClosedSessionsModal.tsx";
@@ -18,6 +19,17 @@ export function App() {
   const showSidebar = useStore((s) => s.settings.showSidebar);
   const showNotes = useStore((s) => s.settings.showNotes);
   const toggleCommandPalette = useStore((s) => s.toggleCommandPalette);
+  const unknownSlug = useStore((s) => s.unknownSlug);
+  const setUnknownSlug = useStore((s) => s.setUnknownSlug);
+  useLocationSync();
+
+  // Auto-dismiss the "workspace not found" banner after a few seconds so it
+  // doesn't linger across navigation. Manual dismiss is still available.
+  useEffect(() => {
+    if (!unknownSlug) return;
+    const t = setTimeout(() => setUnknownSlug(null), 4000);
+    return () => clearTimeout(t);
+  }, [unknownSlug, setUnknownSlug]);
 
   // Capture-phase listener so it preempts xterm's custom key handler in Terminal.tsx.
   useEffect(() => {
@@ -43,6 +55,21 @@ export function App() {
 
   return (
     <div className="h-full flex flex-col bg-[var(--bg)]">
+      {unknownSlug && (
+        <div className="flex items-center gap-2 px-4 h-8 text-xs bg-[var(--panel)] border-b border-[var(--border)] text-[var(--muted)]">
+          <span>
+            Workspace <span className="mono text-[var(--text)]">{unknownSlug}</span> not found —
+            showing the active workspace.
+          </span>
+          <button
+            onClick={() => setUnknownSlug(null)}
+            className="ml-auto w-5 h-5 grid place-items-center rounded hover:bg-[var(--hover)] hover:text-[var(--text)]"
+            title="Dismiss"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
       <PrimaryTabs />
       <div className="flex-1 flex min-h-0">
         {showSidebar && <Sidebar />}

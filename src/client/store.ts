@@ -41,6 +41,9 @@ interface StoreState extends AppState {
   // Note ids whose last local edit the server rejected as stale (a newer remote
   // edit exists). NotesPanel shows a resolve banner for the active note in here.
   noteConflicts: Set<string>;
+  // Set when the URL pointed at a slug that didn't match any visible workspace.
+  // Drives a transient banner; cleared automatically by location.ts.
+  unknownSlug: string | null;
 
   setStatus: (s: ConnStatus) => void;
   applyServerMessage: (msg: ServerMessage) => void;
@@ -54,6 +57,7 @@ interface StoreState extends AppState {
   toggleCommandPalette: () => void;
   toggleKeyBar: () => void;
   clearNoteConflict: (id: string) => void;
+  setUnknownSlug: (slug: string | null) => void;
 }
 
 // On-screen key bar default: persisted choice, else on for touch (coarse pointer).
@@ -131,6 +135,7 @@ export const useStore = create<StoreState>((set, get) => ({
   showKeyBar: initKeyBar(),
   sessionCommands: [],
   noteConflicts: new Set(),
+  unknownSlug: null,
 
   setStatus: (status) => set({ status }),
 
@@ -166,6 +171,7 @@ export const useStore = create<StoreState>((set, get) => ({
     next.delete(id);
     set({ noteConflicts: next });
   },
+  setUnknownSlug: (slug) => set({ unknownSlug: slug }),
 
   applyServerMessage: (msg) => {
     if (msg.type === "init") {
